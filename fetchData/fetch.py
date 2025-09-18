@@ -28,9 +28,9 @@ def fetch(data: list[str]) -> Dict[str, Any]:
     except RequestException as exc:
         return {"ok": False, "status": None, "error": f"request_failed: {exc}"}
 
-    # print('=' * 70)
-    # print(f"[RESPONSE FETCH] {resp.text}")
-    # print('=' * 70)
+    print('=' * 70)
+    print(f"[RESPONSE FETCH] {resp.text}")
+    print('=' * 70)
     status = resp.status_code
     text = json.loads(resp.text)
 
