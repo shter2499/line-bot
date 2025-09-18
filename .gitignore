@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+.testObj
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db

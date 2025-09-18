@@ -1,0 +1,6 @@
+{
+    "editor.defaultFormatter": "ms-python.autopep8",
+    "[json]": {
+        "editor.defaultFormatter": "vscode.json-language-features"
+    }
+}
