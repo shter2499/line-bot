@@ -14,23 +14,19 @@ import json
 import requests
 import mimetypes
 
-Header_token = "47B93974-2F6C-423F-A3EF-EC8A9CA64BB4"  # ควรย้ายไป ENV
-# Header_token = "C74A8597-9A03-4749-8084-66560ถ926849"  # ควรย้ายไป ENV
+Header_token = "73456A5E-9F97-4F08-B35A-488CB44B4835"
 DEFAULT_URL = "https://192.168.3.107:8080/api/v3/requests/"
-DEFAULT_HEADERS = {"authtoken": Header_token}  # ควรย้ายไป ENV
+DEFAULT_HEADERS = {"authtoken": Header_token}
 
 
 def fetch(data: list[str]) -> Dict[str, Any]:
     inp_data = {"input_data": f"{data}"}
 
     try:
-        resp = requests.post(DEFAULT_URL, headers=DEFAULT_HEADERS, data=inp_data, verify=False)
+        resp = requests.post(
+            DEFAULT_URL, headers=DEFAULT_HEADERS, data=inp_data, verify=False)
     except RequestException as exc:
         return {"ok": False, "status": None, "error": f"request_failed: {exc}"}
-
-    print('=' * 70)
-    print(f"[RESPONSE FETCH] {resp.text}")
-    print('=' * 70)
     status = resp.status_code
     text = json.loads(resp.text)
 
@@ -55,9 +51,6 @@ def uploadFile(img):
     files.append(fileObj)
 
     response = requests.post(url, headers=headers, files=files, verify=False)
-    # print('=' * 90)
-    # print(f"[RESPONSE UPLOAD FILE] {response.text}")
-    # print('=' * 90)
 
     if response.status_code == 201:
         return json.loads(response.text)

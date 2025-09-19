@@ -26,6 +26,8 @@ _reply_cb: Optional[Callable[[str, str], None]] = None
 
 # Redis session client (configure via env, fallback to defaults)
 _redis: Optional[RedisSession] = None
+
+
 def _get_redis() -> RedisSession:
     global _redis
     if _redis is None:
@@ -34,11 +36,13 @@ def _get_redis() -> RedisSession:
         db = 0
         password = None
         ttl = SESSION_TIMEOUT_SEC
-        _redis = RedisSession(host=host, port=port, db=db, password=password, ttl_seconds=ttl)
+        _redis = RedisSession(host=host, port=port, db=db,
+                              password=password, ttl_seconds=ttl)
     return _redis
 
-# Timers are stored per-user in-process (not persisted)
+
 _timers: Dict[str, threading.Timer] = {}
+
 
 def _default_state(uid: str) -> Dict:
     return {
@@ -50,16 +54,15 @@ def _default_state(uid: str) -> Dict:
         "await_confirm": False,
     }
 
+
 def _load_state(uid: str) -> Optional[Dict]:
     try:
         data = _get_redis().get(uid)
-        print("=" * 50)
-        print(f"[LOAD STATE] {data}")
-        print("=" * 50)
         return data
     except Exception as e:
         print(f"[ERROR] load state failed for {uid}: {e}")
         return None
+
 
 def _save_state(uid: str, state: Dict) -> None:
     try:
@@ -68,11 +71,13 @@ def _save_state(uid: str, state: Dict) -> None:
     except Exception as e:
         print(f"[ERROR] save state failed for {uid}: {e}")
 
+
 def _delete_state(uid: str) -> None:
     try:
         _get_redis().delete(uid)
     except Exception as e:
         print(f"[ERROR] delete state failed for {uid}: {e}")
+
 
 def set_reply_callback(cb: Callable[[str, str], None]) -> None:
     """Register a callback used to reply later using a stored reply_token.
@@ -83,11 +88,6 @@ def set_reply_callback(cb: Callable[[str, str], None]) -> None:
     _reply_cb = cb
 
 
-def _expire():
-    """No-op: Redis handles TTL expiry automatically."""
-    return
-
-
 def _start(uid: str):
     st = _default_state(uid)
     _save_state(uid, st)
@@ -95,7 +95,6 @@ def _start(uid: str):
 
 
 def _clear(uid: str):
-    """ลบ state ของผู้ใช้ (ใช้เมื่อยกเลิก หรือจบครบทุกข้อ)."""
     # cancel local timer if exists
     t = _timers.pop(uid, None)
     if t:
@@ -103,7 +102,6 @@ def _clear(uid: str):
             t.cancel()
         except Exception:
             pass
-    # delete state from Redis
     _delete_state(uid)
 
 
@@ -111,14 +109,10 @@ def _clear(uid: str):
 def _auto_submit_job(user_id: str):
     state = _load_state(user_id)
     clear_session = False
-    # print(f"[Auto_submit job state] {state}")
     if not state:
         return
     try:
         if not state.get("answers"):
-            print("="*50)
-            print("[WARN] auto_submit but no answers")
-            print("="*50)
             token = state.get("reply_token")
             warn_msg = "** รบกวนขอข้อมูลตามนี้หน่อยครับ **\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
             if token and _reply_cb:
@@ -127,9 +121,8 @@ def _auto_submit_job(user_id: str):
                 except Exception as e:
                     print(f"[ERROR] auto_submit reply failed: {e}")
             return
-            
+
         result = _summary(state)
-        # พยายาม reply ด้วย reply_token ที่เก็บไว้ เพื่อลดการใช้ push
         token = state.get("reply_token")
         if result and token and _reply_cb:
             try:
@@ -143,7 +136,6 @@ def _auto_submit_job(user_id: str):
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
-    # reset debounce timer for this user
     old = _timers.get(user_id)
     if old:
         try:
@@ -159,10 +151,6 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
 def _summary(state: Dict) -> str:
     answers = list(state["answers"])
     image_paths = state.get('image_paths', [])
-    print("=" * 50)
-    print(f"[ANSWERS] {answers}")
-    print(f"[IMG] {image_paths}")
-    print("=" * 50)
     try:
         detail = answers[0].split('ปัญหาที่พบ:')[1].split('\n')[0]
         req_name = answers[0].split('รหัสสาขาและชื่อสาขา:')[1].split('\n')[0]
@@ -187,9 +175,7 @@ def _summary(state: Dict) -> str:
                 print(f"[WARN] upload failed for {img_path}: {e}")
     payload = {
         "request": {
-            # "subject": f"{detail} ({"EDC ค้าง" if answers[0] == "1" else "EDC ไม่ค้าง"}, {"Restart เครื่องแล้ว" if answers[1] == "1" else "ยังไม่ได้ Restart เครื่อง"}, {"สลิปออก" if answers[2] == "1" else "สลิปไม่ออก"})",
             "subject": detail,
-            # "description": answers[3].replace('\n', '<br />') + answers[2],
             "description": f"ชื่อสาขาหรือรหัสสาขา: {req_name}<br />ชื่อผู้แจ้ง: {user}<br />เบอร์โทรผู้แจ้ง: {phone}<br />รายละเอียดปัญหา: {detail}",
             "requester": {
                 "name": req_name
@@ -241,13 +227,9 @@ def _summary(state: Dict) -> str:
             "attachments": attachment_list
         }
     }
-    # print('=' * 90)
-    # print(f"[attachments] {attachment_list}")
-    # print('=' * 90)
 
     resp = fetch(payload)
     if resp.get("ok"):
-        # ลบรูปเมื่อสร้าง ticket สำเร็จเท่านั้น (กันเคสต้อง retry)
         for img_path in image_paths:
             if img_path and os.path.isfile(img_path):
                 try:
@@ -260,31 +242,22 @@ def _summary(state: Dict) -> str:
             ticket_id = "-"
         return (
             f"Ticket {ticket_id} ทีมงานจะตรวจสอบและรีบติดต่อกลับโดยเร็วนะคะ โดยมีรายละเอียดดังนี้\n"
-            f"{answers[0].split('กรุณา')[0]}\n"
+            f"{answers[0].split('รบกวนขอรูป')[0]}\n"
         )
     return "ไม่สามารถบันทึกข้อมูลในระบบได้ โปรดติดต่อเจ้าหน้าที่โดยตรงหรือลองใหม่อีกครั้งค่ะ"
 
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
-    # เคลียร์เซสชันที่หมดอายุ และสร้างใหม่ถ้ายังไม่มี
-    # print("[PROCESS STEP MESSAGE user_id] ", user_id)
-    _expire()
     state = _load_state(user_id)
     if not state:
         state = _start(user_id)
-    # อัพเดท reply_token ทุกข้อความ (ใช้กับ auto-submit ภายหลัง)
     if reply_token:
         state["reply_token"] = reply_token
         _save_state(user_id, state)
 
-    print(f"[SETP MESSAGE STATE] {state}")
-        
     msg = (text or "").strip()
     lower = msg.lower()
-    # print("=" * 50)
-    # print(f"[TEXT] {lower}")
-    # print(f"[RES] {res}")
-    # print("=" * 50)
+
     if lower == "ยกเลิก":
         _clear(user_id)
         return "ยกเลิกเซสชันแล้ว"
@@ -294,9 +267,7 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
         _clear(user_id)
         return result
 
-    # print(f"[STATE BEFORE AI MESSAGE] {state}")
     res = send_message(lower)
-    # print(f"[LEN img_paths] {len(state.get('image_paths'))}")
 
     if len(state.get("image_paths")) > 0:
         state["answers"].append(res)
@@ -313,92 +284,23 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     return res
 
 
-# def process_step_message(user_id: str, text: str) -> str:
-#     msg = (text or "").strip()
-#     lower = msg.lower()
-#     _expire()
-#     state = _user_states.get(user_id)
-
-#     # ============ เริ่มใหม่ ============
-#     if lower in ("แจ้งปัญหา"):
-#         _start(user_id)
-#         return QUESTIONS[0]
-
-#     # ============ ยกเลิกเซสชัน ============
-#     if lower in ("ยกเลิก", "cancel", "หยุด"):
-#         if state:
-#             _clear(user_id)
-#             return "ยกเลิกเซสชันแล้ว"
-#         return "ยังไม่มีเซสชัน"
-
-#     # ============ ขอทราบสถานะปัจจุบัน ============
-#     if lower in ("สถานะ", "status"):
-#         if state:
-#             return f"อยู่ที่ข้อ {state['step']+1}/{len(QUESTIONS)}"
-#         return "ยังไม่ได้เริ่ม พิมพ์ 'เริ่ม' เพื่อเริ่ม"
-
-#     # ============ ผู้ใช้ยังไม่เริ่ม แต่ส่งข้อความอื่นมา ============
-#     if not state:
-#         return "หากลูกค้าต้องการแจ้งปัญหาเกี่ยวกับเครื่อง EDC รบกวนลูกค้าพิมพ์ \"แจ้งปัญหา\" หรือพิมพ์ \"ยกเลิก\" หากใส่ข้อมูลผิดพลาดค่ะ"
-
-#     # ============ กำลังอยู่ในเซสชัน ============
-#     step = state["step"]
-#     if state.get("await_confirm"):
-#         if lower == "ยืนยัน":
-#             result = _summary(state)
-#             _clear(user_id)
-#             return result
-#         return "กรุณาพิมพ์ 'ยืนยัน' เพื่อส่งข้อมูล หรือพิมพ์ 'ยกเลิก' เพื่อยกเลิกค่ะ"
-
-#     if step >= len(QUESTIONS):
-#         return "หากระบบตอบกลับไม่ตอบสนองหรือการตอบกลับมีปัญหา ให้ลูกค้าพิมพ์ \"ยกเลิก\" และตอบคำถามใหม่อีกครั้งค่ะ"
-
-#     # ============ เก็บคำตอบของข้อปัจจุบัน ============
-#     if step < 3:
-#         if msg not in ("1", "2"):
-#             return (
-#                 "กรุณาตอบเป็นหมายเลข 1 หรือ 2 เท่านั้นค่ะ\n\n"
-#                 f"{QUESTIONS[step]}"
-#             )
-#     elif step == 3:  # รายละเอียดข้อความยาว
-#         if not msg.strip():
-#             return f"รบกวนพิมพ์ข้อความตอบกลับด้วยค่ะ\n\n{QUESTIONS[step]}"
-#     elif step == 4:  # ต้องเป็นรูปภาพ ไม่รับข้อความ
-#         return "รบกวนส่งเป็นรูปภาพสลิป 1 รูปค่ะ หากต้องการยกเลิกพิมพ์ 'ยกเลิก'"
-
-#     if step != 4: 
-#         state["answers"].append(msg)
-#         state["step"] += 1
-#         state["updated"] = time.time()
-#         state["uid"] = user_id
-
-#     if state["step"] < len(QUESTIONS):
-#         # ถัดไปคือคำถามรูปภาพ (step == 4)
-#         if state["step"] == 4:
-#             return QUESTIONS[4]
-#         return QUESTIONS[state['step']]
-
-
 def process_image_message(user_id: str, image_path: str, reply_token: Optional[str] = None) -> Optional[str]:
     state = _load_state(user_id)
     if not state:
-        # สร้างเซสชันใหม่อัตโนมัติถ้ายังไม่มี
         print(f"[WARN] image from user without session: {user_id}")
         state = _start(user_id)
-        
-    print("=" * 50)
-    print(f"[IMAGE MESSAGE STATE] {state}")
-    print("=" * 50)
-    image_paths = state.get("image_paths", [])
 
+    image_paths = state.get("image_paths", [])
     image_paths.append(image_path)
     state["image_paths"] = image_paths
     state["updated"] = time.time()
-    # เก็บ reply_token ล่าสุดไว้เพื่อตอบกลับหลังครบดีเลย์ (ไม่ใช้ push)
+
     if reply_token:
         state["reply_token"] = reply_token
     _save_state(user_id, state)
     _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
 
-__all__ = ["process_step_message", "process_image_message", "QUESTIONS", "set_reply_callback"]
+
+__all__ = ["process_step_message", "process_image_message",
+           "QUESTIONS", "set_reply_callback"]

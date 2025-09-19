@@ -11,14 +11,6 @@ def send_message(message: str) -> str:
     4.ให้ใช้ศัพท์ที่กระชับเข้าใจง่าย ไม่ใช้ศัพท์เทคนิคและต้องใช้คำสุภาพ
     5.หากได้ข้อมูลครบถ้วนตามข้อ 2 ให้ขอรูปภาพประกอบปัญหาโดยพิมพ์ไปแบบนี้เท่านั้น "รบกวนขอรูปภาพด้วยครับ"
     """
-
-    # system_prompt = """
-    # 1.หากได้ข้อมูลครบถ้วนตามที่ข้อ 2 ต้องการ ให้ขอรูปภาพโดยพิมพ์ไปรูปแบบนี้เท่านั้น "รบกวนขอรูปภาพด้วยครับ" ถ้าหากยังไม่ครบถ้วนให้ขอข้อมูลจากข้อ 2 ไปก่อน
-    # 2.ทวนข้อมูลที่ลูกค้าให้มาเพื่อยืนยันความถูกต้องและต้องขอข้อมูลลูกค้าแบบนี้ "** รบกวนขอข้อมูลตามนี้หน่อยครับ **\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:" ลูกค้าจะใส่หรือไม่ใส่หัวข้อก็ได้
-    # 3.ให้ใช้ศัพท์ที่กระชับเข้าใจง่าย ไม่ใช้ศัพท์เทคนิคและต้องใช้คำสุภาพ
-    # 4.ในส่วนของรายละเอียดข้อมูลที่ลูกค้าใส่มา ห้ามเปลี่ยนแปลงรูปแบบของข้อมูลโดยเฉพาะ ชื่อสาขาหรือรหัสสาขา
-    # """
-
     start = time.perf_counter()
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
@@ -28,7 +20,6 @@ def send_message(message: str) -> str:
             "Content-Type": "application/json"
         },
         data=json.dumps({
-            # "model": "deepseek/deepseek-chat-v3.1:free",
             "model": "deepseek/deepseek-chat-v3.1:free",
             "messages": [
                 {
@@ -46,10 +37,10 @@ def send_message(message: str) -> str:
     res = response.json()
 
     end = time.perf_counter()
-    print("=" * 50)
-    print(f"Request took {end - start:.2f} seconds")
-    print(f"[AI RES] {res["choices"][0]["message"]["content"]}")
-    print("=" * 50)
+    # print("=" * 50)
+    # print(f"Request took {end - start:.2f} seconds")
+    # print(f"[AI RES] {res["choices"][0]["message"]["content"]}")
+    # print("=" * 50)
     return res["choices"][0]["message"]["content"]
 
 __all__ = ["send_message"]

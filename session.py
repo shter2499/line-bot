@@ -4,9 +4,6 @@ import os
 from typing import Dict, Any
 
 class RedisSession:
-    """
-    Class สำหรับจัดการ Session โดยใช้ Redis เป็นตัวเก็บข้อมูล
-    """
     def __init__(self, host='localhost', port=6379, db=0, password=None, ttl_seconds=600):
         """
         เชื่อมต่อกับ Redis server และตั้งค่าพื้นฐาน
