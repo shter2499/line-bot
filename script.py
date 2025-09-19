@@ -5,7 +5,6 @@
 """
 
 import os
-import json
 import imghdr
 import time
 
@@ -92,7 +91,7 @@ def handle_message(event):
         group_key = getattr(event.source, f"{event.source.type}_id", "")
         user_id = f"{event.source.type}:{group_key}:{getattr(event.source, 'user_id', '')}"
 
-    reply_message = process_step_message(user_id, user_message)
+    reply_message = process_step_message(user_id, user_message, reply_token=event.reply_token)
 
     try:
         line_bot_api.reply_message(

@@ -23,8 +23,8 @@ def send_message(message: str) -> str:
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
         headers={
-            # "Authorization": "Bearer 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", #เมลหลัก
-            "Authorization": "Bearer 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", #เมลรอง
+            "Authorization": "Bearer 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", #เมลหลัก
+            # "Authorization": "Bearer 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", #เมลรอง
             "Content-Type": "application/json"
         },
         data=json.dumps({

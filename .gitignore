@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 venv/
 .env
-.testObj
+tmp_uploads/
 # MacOS
 .DS_Store
 

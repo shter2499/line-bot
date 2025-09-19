@@ -1,11 +1,12 @@
 """
-ข้อจำกัดปัจจุบัน:
-        - State หายเมื่อโปรเซสรีสตาร์ต
-        - ไม่มี lock ป้องกัน race (Flask single-thread ปกติพอ แต่ production ที่มี multi-thread ควรเพิ่ม threading.Lock)
+State management now uses Redis via session.RedisSession instead of in-memory dict.
+- Session TTL is enforced by Redis; no manual _expire needed.
+- Timers are managed in-process per instance (stored outside Redis) as they are not JSON-serializable.
 """
 from __future__ import annotations
 from fetchData.fetch import fetch, uploadFile
 from dialog.aiDialog import send_message
+from session import RedisSession
 
 import os
 import time
@@ -21,8 +22,57 @@ QUESTIONS: List[str] = [
 ]
 
 SESSION_TIMEOUT_SEC = 600
-_user_states: Dict[str, Dict] = {}
 _reply_cb: Optional[Callable[[str, str], None]] = None
+
+# Redis session client (configure via env, fallback to defaults)
+_redis: Optional[RedisSession] = None
+def _get_redis() -> RedisSession:
+    global _redis
+    if _redis is None:
+        host = "localhost"
+        port = 6379
+        db = 0
+        password = None
+        ttl = SESSION_TIMEOUT_SEC
+        _redis = RedisSession(host=host, port=port, db=db, password=password, ttl_seconds=ttl)
+    return _redis
+
+# Timers are stored per-user in-process (not persisted)
+_timers: Dict[str, threading.Timer] = {}
+
+def _default_state(uid: str) -> Dict:
+    return {
+        "step": 0,
+        "answers": [],
+        "updated": time.time(),
+        "uid": uid,
+        "image_paths": [],
+        "await_confirm": False,
+    }
+
+def _load_state(uid: str) -> Optional[Dict]:
+    try:
+        data = _get_redis().get(uid)
+        print("=" * 50)
+        print(f"[LOAD STATE] {data}")
+        print("=" * 50)
+        return data
+    except Exception as e:
+        print(f"[ERROR] load state failed for {uid}: {e}")
+        return None
+
+def _save_state(uid: str, state: Dict) -> None:
+    try:
+        state["updated"] = time.time()
+        _get_redis().save(uid, state)
+    except Exception as e:
+        print(f"[ERROR] save state failed for {uid}: {e}")
+
+def _delete_state(uid: str) -> None:
+    try:
+        _get_redis().delete(uid)
+    except Exception as e:
+        print(f"[ERROR] delete state failed for {uid}: {e}")
 
 def set_reply_callback(cb: Callable[[str, str], None]) -> None:
     """Register a callback used to reply later using a stored reply_token.
@@ -34,46 +84,33 @@ def set_reply_callback(cb: Callable[[str, str], None]) -> None:
 
 
 def _expire():
-    """ลบเซสชันที่ idle เกิน SESSION_TIMEOUT_SEC เพื่อลด memory leak.
-
-    ทำงานแบบ 'lazy cleanup' คือเรียกเฉพาะตอนมีข้อความใหม่เข้ามา
-    หากระบบ scale มากและต้องการความเที่ยงตรงอาจใช้ background job แทน.
-    """
-    now = time.time()
-    expired = [uid for uid, st in _user_states.items(
-    ) if now - st["updated"] > SESSION_TIMEOUT_SEC]
-    for uid in expired:
-        _user_states.pop(uid, None)
+    """No-op: Redis handles TTL expiry automatically."""
+    return
 
 
 def _start(uid: str):
-    st = {
-        "step": 0,
-        "answers": [],
-        "updated": time.time(),
-        "uid": uid,
-        "image_paths": [],
-        "await_confirm": False,
-    }
-    _user_states[uid] = st
+    st = _default_state(uid)
+    _save_state(uid, st)
     return st
 
 
 def _clear(uid: str):
     """ลบ state ของผู้ใช้ (ใช้เมื่อยกเลิก หรือจบครบทุกข้อ)."""
-    st = _user_states.pop(uid, None)
-    # ยกเลิก timer ถ้ามีเพื่อกันงานค้าง
-    try:
-        t = st.get("_timer") if st else None
-        if t:
+    # cancel local timer if exists
+    t = _timers.pop(uid, None)
+    if t:
+        try:
             t.cancel()
-    except Exception:
-        pass
+        except Exception:
+            pass
+    # delete state from Redis
+    _delete_state(uid)
 
 
 # ========== Auto-submit scheduling (5s debounce) ==========
 def _auto_submit_job(user_id: str):
-    state = _user_states.get(user_id)
+    state = _load_state(user_id)
+    clear_session = False
     # print(f"[Auto_submit job state] {state}")
     if not state:
         return
@@ -97,18 +134,17 @@ def _auto_submit_job(user_id: str):
         if result and token and _reply_cb:
             try:
                 _reply_cb(token, result)
+                clear_session = True
             except Exception as e:
                 print(f"[ERROR] delayed reply failed: {e}")
     finally:
-        _clear(user_id)
+        if clear_session:
+            _clear(user_id)
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
-    state = _user_states.get(user_id)
-    # print(f"[Auto_submit state] {state}")
-    if not state:
-        return
-    old = state.get("_timer")
+    # reset debounce timer for this user
+    old = _timers.get(user_id)
     if old:
         try:
             old.cancel()
@@ -116,7 +152,7 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
             pass
     t = threading.Timer(delay_sec, _auto_submit_job, args=(user_id,))
     t.daemon = True
-    state["_timer"] = t
+    _timers[user_id] = t
     t.start()
 
 
@@ -229,14 +265,19 @@ def _summary(state: Dict) -> str:
     return "ไม่สามารถบันทึกข้อมูลในระบบได้ โปรดติดต่อเจ้าหน้าที่โดยตรงหรือลองใหม่อีกครั้งค่ะ"
 
 
-def process_step_message(user_id: str, text: str) -> str:
+def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     # เคลียร์เซสชันที่หมดอายุ และสร้างใหม่ถ้ายังไม่มี
-    print("[PROCESS STEP MESSAGE user_id] ", user_id)
+    # print("[PROCESS STEP MESSAGE user_id] ", user_id)
     _expire()
-    state = _user_states.get(user_id)
+    state = _load_state(user_id)
     if not state:
         state = _start(user_id)
+    # อัพเดท reply_token ทุกข้อความ (ใช้กับ auto-submit ภายหลัง)
+    if reply_token:
+        state["reply_token"] = reply_token
+        _save_state(user_id, state)
 
+    print(f"[SETP MESSAGE STATE] {state}")
         
     msg = (text or "").strip()
     lower = msg.lower()
@@ -253,21 +294,22 @@ def process_step_message(user_id: str, text: str) -> str:
         _clear(user_id)
         return result
 
-    print(f"[STATE BEFORE AI MESSAGE] {state}")
+    # print(f"[STATE BEFORE AI MESSAGE] {state}")
     res = send_message(lower)
-    print(f"[LEN img_paths] {len(state.get('image_paths'))}")
+    # print(f"[LEN img_paths] {len(state.get('image_paths'))}")
 
     if len(state.get("image_paths")) > 0:
         state["answers"].append(res)
+        _save_state(user_id, state)
         result = _summary(state)
         _clear(user_id)
         return result
 
     if "ขอรูปภาพ" in res and len(state.get("image_paths")) == 0:
         state["answers"].append(res)
+        _save_state(user_id, state)
         return "รบกวนขอรูปภาพด้วยครับ"
 
-    print(f"[SETP MESSAGE STATE] {state}")
     return res
 
 
@@ -338,7 +380,7 @@ def process_step_message(user_id: str, text: str) -> str:
 
 
 def process_image_message(user_id: str, image_path: str, reply_token: Optional[str] = None) -> Optional[str]:
-    state = _user_states.get(user_id)
+    state = _load_state(user_id)
     if not state:
         # สร้างเซสชันใหม่อัตโนมัติถ้ายังไม่มี
         print(f"[WARN] image from user without session: {user_id}")
@@ -355,6 +397,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     # เก็บ reply_token ล่าสุดไว้เพื่อตอบกลับหลังครบดีเลย์ (ไม่ใช้ push)
     if reply_token:
         state["reply_token"] = reply_token
+    _save_state(user_id, state)
     _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
 
