@@ -24,7 +24,6 @@ QUESTIONS: List[str] = [
 SESSION_TIMEOUT_SEC = 600
 _reply_cb: Optional[Callable[[str, str], None]] = None
 
-# Redis session client (configure via env, fallback to defaults)
 _redis: Optional[RedisSession] = None
 
 
@@ -48,10 +47,14 @@ def _default_state(uid: str) -> Dict:
     return {
         "step": 0,
         "answers": [],
+        "edc_answers": [],
         "updated": time.time(),
         "uid": uid,
         "image_paths": [],
-        "await_confirm": False,
+        "history": [],
+        "answers_confirm": False,
+        "img_confirm": False,
+        "edc_confirm": False
     }
 
 
@@ -106,6 +109,7 @@ def _clear(uid: str):
 
 
 # ========== Auto-submit scheduling (5s debounce) ==========
+#แก้จาก auto summit เป็น auto reply แทนเพราะเผื่อเคสที่ลูกค้าส่งรูปมาก่อนเป็นอันดับแรก
 def _auto_submit_job(user_id: str):
     state = _load_state(user_id)
     clear_session = False
@@ -114,14 +118,26 @@ def _auto_submit_job(user_id: str):
     try:
         if not state.get("answers"):
             token = state.get("reply_token")
-            warn_msg = "** รบกวนขอข้อมูลตามนี้หน่อยครับ **\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+            state["img_confirm"] = True
             if token and _reply_cb:
                 try:
-                    _reply_cb(token, warn_msg)
+                    _save_state(user_id, state)
+                    _reply_cb(token, "** รบกวนขอข้อมูลตามนี้หน่อยครับ **\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
                 except Exception as e:
                     print(f"[ERROR] auto_submit reply failed: {e}")
             return
-
+        
+        if not state.get("edc_confirm"):
+            token = state.get("reply_token")
+            # state["edc_confirm"] = True
+            if token and _reply_cb:
+                try:
+                    _save_state(user_id, state)
+                    _reply_cb(token, "1.EDC ค้างไหมครับ\nAns\n2.มีการ Restart EDC ไหมครับ\nAns\n3.สลิปที่เครื่อง EDC ออกไหมครับ\nAns")
+                except Exception as e:
+                    print(f"[ERROR] auto_submit reply failed: {e}")
+            return
+        
         result = _summary(state)
         token = state.get("reply_token")
         if result and token and _reply_cb:
@@ -135,6 +151,20 @@ def _auto_submit_job(user_id: str):
             _clear(user_id)
 
 
+def _auto_reply(user_id: str):
+    state = _load_state(user_id)
+    clear_session = False
+    if not state:
+        return
+    try:
+        res = send_message("", state)
+        return res
+    finally:
+        if clear_session:
+            _clear(user_id)
+
+
+
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
     old = _timers.get(user_id)
     if old:
@@ -142,7 +172,7 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
             old.cancel()
         except Exception:
             pass
-    t = threading.Timer(delay_sec, _auto_submit_job, args=(user_id,))
+    t = threading.Timer(delay_sec, _auto_reply, args=(user_id,))
     t.daemon = True
     _timers[user_id] = t
     t.start()
@@ -244,48 +274,84 @@ def _summary(state: Dict) -> str:
             f"Ticket {ticket_id} ทีมงานจะตรวจสอบและรีบติดต่อกลับโดยเร็วนะคะ โดยมีรายละเอียดดังนี้\n"
             f"{answers[0].split('รบกวนขอรูป')[0]}\n"
         )
-    return "ไม่สามารถบันทึกข้อมูลในระบบได้ โปรดติดต่อเจ้าหน้าที่โดยตรงหรือลองใหม่อีกครั้งค่ะ"
+    return "ตอนนี้ระบบบันทึกข้อมูลไม่ได้ กรุณารอสักครู่ครับ"
 
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     state = _load_state(user_id)
+    # จัดประเภทผลลัพธ์จาก AI
+
     if not state:
         state = _start(user_id)
     if reply_token:
         state["reply_token"] = reply_token
-        _save_state(user_id, state)
+        # _save_state(user_id, state)
 
     msg = (text or "").strip()
     lower = msg.lower()
+    state["history"].append(lower)
+    need_image = state.get("img_confirm")
+    need_edc   = state.get("edc_confirm")
+    need_answers = state.get("answers_confirm")
 
     if lower == "ยกเลิก":
         _clear(user_id)
         return "ยกเลิกเซสชันแล้ว"
+    
+    _save_state(user_id, state)
 
-    if lower == "ยืนยัน":
-        result = _summary(state)
-        _clear(user_id)
-        return result
+    res = send_message(lower, state)
+    #========================================= ยังใช้งานอยู่อย่าพึ่งลบ =============================================================================
+    # updated = False
+    
+    # if not need_image:
+    #     # # ข้อความนี้ถือว่าเกี่ยวกับรายละเอียด + ขอรูป (ถือเป็นการได้ detail ชุดหนึ่ง)
+    #     if res not in state["answers"]:
+    #         state["answers"].append(res)
+    #     state["answers_confirm"] = True
+    #     updated = True
+    #     # ถ้ายังไม่มีรูป ให้แจ้งขอรูป (ถ้ามีรูปแล้วก็ไม่ต้อง return ตัด flow)
+    #     if not state.get("img_confirm"):
+    #         _save_state(user_id, state)
+    #         return "รบกวนขอรูปภาพด้วยครับ" if not need_edc else "ต้องการข้อมูล EDC"
 
-    res = send_message(lower)
+    # elif not need_edc:
+    #     if res not in state.get("edc_answers", []):
+    #         state.setdefault("edc_answers", []).append(res)
+    #     state["edc_confirm"] = True
+    #     updated = True
+    #     # return "ต้องการข้อมูล EDC"
 
-    if len(state.get("image_paths")) > 0:
-        state["answers"].append(res)
-        _save_state(user_id, state)
-        result = _summary(state)
-        _clear(user_id)
-        return result
+    # else:
+    #     # ถือว่าเป็นรายละเอียดทั่วไป (อาจมาหลังรูปหรือหลัง edc ก็ได้)
+    #     if res not in state["answers"]:
+    #         state["answers"].append(res)
+    #         state["answers_confirm"] = True
+    #         updated = True
+    #     # res = send_message(lower, state)
+    #     # print("=" * 50)
+    #     # print(f"[ELSE AI] {res}")
+    #     # print("=" * 50)
 
-    if "ขอรูปภาพ" in res and len(state.get("image_paths")) == 0:
-        state["answers"].append(res)
-        _save_state(user_id, state)
-        return "รบกวนขอรูปภาพด้วยครับ"
+    # if updated:
 
+    # # สรุปหากครบทั้ง 3 ส่วน ไม่สนลำดับการมาถึง
+    # # print("=" * 50)
+    # # print(f"[ans con] {state.get('answers_confirm')}, edc: {state.get('edc_confirm')}, img: {state.get('img_confirm')}")
+    # # print("=" * 50)
+    # if state.get("answers_confirm") and state.get("edc_confirm") and state.get("img_confirm"):
+    #     result = _summary(state)
+    #     _clear(user_id)
+    #     return result
+    #========================================= ยังใช้งานอยู่อย่าพึ่งลบ =============================================================================
     return res
 
 
 def process_image_message(user_id: str, image_path: str, reply_token: Optional[str] = None) -> Optional[str]:
     state = _load_state(user_id)
+    # print("=" * 50)
+    # print(f"[STATE] {state}")
+    # print("=" * 50)
     if not state:
         print(f"[WARN] image from user without session: {user_id}")
         state = _start(user_id)
@@ -294,9 +360,12 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     image_paths.append(image_path)
     state["image_paths"] = image_paths
     state["updated"] = time.time()
+    state["img_confirm"] = True
+    state["history"].append("[Image]")
 
     if reply_token:
         state["reply_token"] = reply_token
+
     _save_state(user_id, state)
     _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
