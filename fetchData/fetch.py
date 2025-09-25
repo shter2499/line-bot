@@ -14,7 +14,7 @@ import json
 import requests
 import mimetypes
 
-Header_token = "979A97D6-362B-4E32-BB8A-ABB4E27043FE test"
+Header_token = "979A97D6-362B-4E32-BB8A-ABB4E27043FE"
 DEFAULT_URL = "https://192.168.3.107:8080/api/v3/requests/"
 DEFAULT_HEADERS = {"authtoken": Header_token}
 
