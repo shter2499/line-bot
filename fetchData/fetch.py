@@ -1,8 +1,4 @@
 """
-ฟังก์ชันนี้จะไม่ raise exception ออกไป แต่จะคืน dict รูปแบบมาตรฐาน:
-  {"ok": True,  "status": <int>, "data": <object>, "raw_text": <str>}  เมื่อสำเร็จ
-  {"ok": False, "status": <int|None>, "error": <str>}                 เมื่อผิดพลาด
-
 หมายเหตุ: ปัจจุบันมีการปิด verify SSL (verify=False) *ไม่ปลอดภัย* ใช้เฉพาะ DEV.
 แนะนำให้ปรับเป็น verify=True และใช้ certificate ที่ถูกต้องใน production.
 """
@@ -13,8 +9,11 @@ from requests import RequestException
 import json
 import requests
 import mimetypes
+import mysql.connector
+import datetime
+import pytz
 
-Header_token = "979A97D6-362B-4E32-BB8A-ABB4E27043FE"
+Header_token = "FC22D442-AD1F-4ABF-B401-84AD6B95423A"
 DEFAULT_URL = "https://192.168.3.107:8080/api/v3/requests/"
 DEFAULT_HEADERS = {"authtoken": Header_token}
 
@@ -58,4 +57,137 @@ def uploadFile(img):
         return {"ok": False, "status": response.status_code, "error": response.text}
 
 
-__all__ = ["fetch"]
+def fetch_store(storeID: str):
+    db_config = {
+        "host": "localhost",
+        "user": "root",
+        "password": "ranma2499",
+        "database": "store_name"
+    }
+
+    try:
+        mydb = mysql.connector.connect(**db_config)
+        cursor = mydb.cursor(dictionary=True)
+        cursor.execute(
+            f""" select site_name, standard from stores where site_name like '%{storeID}%' """)
+        result = cursor.fetchall()
+        return result
+
+    except mysql.connector.Error as e:
+        print(f"[ERROR] MySQL error: {e}")
+    finally:
+        cursor.close()
+        mydb.close()
+
+
+def search_duplicate(storeID: str):
+    try:
+        # เรียกใช้ฟังก์ชั่นเพื่อหาค่า epoch
+        start_date = datetime.date.today().strftime('%Y-%m-%d')
+        start_epoch, end_epoch = get_epoch(start_date)
+
+        # แสดงข้อมูลวันที่ที่จะค้นหา
+        thailand_tz = pytz.timezone('Asia/Bangkok')
+        start_dt = datetime.datetime.fromtimestamp(
+            start_epoch / 1000, thailand_tz)
+        end_dt = datetime.datetime.fromtimestamp(end_epoch / 1000, thailand_tz)
+
+        print(
+            f"ค้นหาข้อมูลช่วงวันที่: {start_dt.strftime('%Y-%m-%d')} ถึง {end_dt.strftime('%Y-%m-%d')}")
+
+        url = "http://192.168.1.12:443/api/v3/requests"
+        headers = {"authtoken": "57197C2B-D8E6-4DF3-94B9-37B325E35750"}
+        input_data = f'''{{
+            "list_info": {{
+                "row_count": 1000,
+                "start_index": 1,
+                "sort_field": "id",
+                "sort_order": "desc",
+                "get_total_count": true,
+                "search_criteria": [            
+                    {{
+                        "field": "requester.name",
+                        "condition": "is",
+                        "value": "{storeID}"
+                    }},
+                    {{
+                        "field": "created_time",
+                        "condition": "greater than",
+                        "value": "{start_epoch}",
+                        "logical_operator": "AND"
+                    }},
+                                        {{
+                        "field": "subcategory",
+                        "condition": "greater than",
+                        "value": "{start_epoch}",
+                        "logical_operator": "AND"
+                    }}
+                ]
+            }}
+        }}'''
+
+        # ถ้าจะให้แสดงวันที่ตรงกับ timezone ของไทยต้องเลือกห้าโมงเย็นของเมื่อวาน ในเว็บ epochconverter หรือค่า epoch -61200000 ms ถึงจะได้ GMT+7
+        # 1754438400000 - 61200000 = 1754372400000
+
+        params = {'input_data': input_data}
+        response = requests.get(url, headers=headers,params=params, verify=False)
+        return response.json()
+    except RequestException as exc:
+        print(" ⚠️ " * 20)
+        print(f"[ERROR] request_failed: {exc}")
+        print(" ⚠️ " * 20)
+        return {"ok": False, "status": None, "error": f"request_failed: {exc}"}
+
+
+def get_epoch(start_date=None, end_date=None):
+    """
+    คำนวณค่า epoch timestamp สำหรับเขตเวลาไทย
+
+    Args:
+        start_date (str, optional): วันที่เริ่มต้นในรูปแบบ 'YYYY-MM-DD' เช่น '2025-08-05'
+        end_date (str, optional): วันที่สิ้นสุดในรูปแบบ 'YYYY-MM-DD' เช่น '2025-08-06'
+        ถ้าไม่ระบุจะใช้วันที่ปัจจุบัน (start=end=today)
+    Returns:
+        tuple: (start_epoch, end_epoch) ค่า epoch timestamp ในหน่วย milliseconds
+    """
+    # สร้าง timezone ไทย
+    thailand_tz = pytz.timezone('Asia/Bangkok')
+
+    # ถ้าไม่ระบุวันที่เริ่มต้น ใช้วันที่ปัจจุบัน
+    if start_date is None:
+        start_day = datetime.datetime.now(thailand_tz)
+    else:
+        # แปลงสตริงวันที่เป็น datetime object
+        try:
+            start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+            start_day = thailand_tz.localize(start_day)
+        except ValueError:
+            print(
+                f"รูปแบบวันที่เริ่มต้นไม่ถูกต้อง: {start_date}, ใช้รูปแบบ YYYY-MM-DD")
+            start_day = datetime.datetime.now(thailand_tz)
+
+    # ถ้าไม่ระบุวันที่สิ้นสุด ใช้วันที่เดียวกับวันเริ่มต้น
+    if end_date is None:
+        end_day = start_day
+    else:
+        # แปลงสตริงวันที่เป็น datetime object
+        try:
+            end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+            end_day = thailand_tz.localize(end_day)
+        except ValueError:
+            print(
+                f"รูปแบบวันที่สิ้นสุดไม่ถูกต้อง: {end_date}, ใช้รูปแบบ YYYY-MM-DD")
+            end_day = start_day
+
+    # ตั้งเวลาเริ่มต้น 00:00:00 และสิ้นสุด 23:59:59
+    start_time = start_day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_time = end_day.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    # แปลงเป็น epoch timestamp (ms)
+    start_epoch = int(start_time.timestamp() * 1000)
+    end_epoch = int(end_time.timestamp() * 1000)
+
+    return start_epoch, end_epoch
+
+
+__all__ = ["fetch", "fetch_store"]

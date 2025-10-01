@@ -1,130 +1,118 @@
 import requests
 import json
+import ollama
 import time
 import os
 
 
 def send_message(message: str, state: dict[str, any]) -> str:
-    print('[Send request to OpenRouter.ai]')
+    try:
+        print('[Send request to OpenRouter.ai]')
 
-    # system_prompt = """
-    # 1.ตรวจสอบข้อความใน history ว่ามีข้อมูลตามที่กำหนดไว้ทั้งสามส่วนไหม โดยส่วนแรก รหัสสาขาและชื่อสาขา, ปัญหาที่พบ, ชื่อ, เบอร์ติดต่อ ส่วนที่สอง เครื่อง EDC ค้างหรือไม่, Restart เครื่อง EDC หรือไม่, สลิปจากเครื่องออกหรือไม่ และส่วนที่สาม รูปภาพประกอบปัญหา โดยนำข้อมูลที่ได้มาเติมในแต่ละส่วนให้ครบ
-    # 2.ให้ขอข้อมูลเพิ่มเติมหากมีส่วนไหนไม่ครบถ้วนโดยขอทีละส่วน โดยเริ่มจากส่วนไหนก่อนก็ได้ ถ้าหากข้อมูลใน history ตรงกับส่วนใดส่วนหนึ่งแล้ว ให้ข้ามไปขอส่วนที่ยังไม่มีแทน
-    # 3.รูปแบบการขอข้อมูลส่วนที่หนึ่ง "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:" ตัวอย่างข้อมูลที่อาจจะได้มา "1024 เซ็นทรัลพระรามสาม", "EDC ไม่ตัดบิลลูกค้า", "พลอย", "0887654321"
-    # 4.รูปแบบการขอข้อมูลส่วนที่สอง "เครื่อง EDC ค้างหรือไม่:\nAns\nRestart เครื่อง EDC หรือไม่:\nAns\nสลิปจากเครื่องออกหรือไม่:\nAns" ตัวอย่างข้อมูลที่อาจจะได้มา "ค้าง", "ไม่ค้าง", "ใช่", "ไม่ใช่"
-    # 5.รูปแบบการขอข้อมูลส่วนที่สาม "รบกวนขอรูปภาพด้วยครับ" โดยรูปจะต้องเช็คว่า img_confirm เป็น True แล้วเท่านั้น
-    # 6.หากมีข้อความเชิงทักทาย สอบถามทั่วไป หรือ แจ้งปัญหาให้ตอบกลับสั้นๆเช่น "สวัสดีครับ", "ติดปัญหาด้านไหนครับ" หากข้อความเกี่ยวข้องกับทั้งสามส่วนให้ตอบกลับส่วนใดส่วนหนึ่งกลับไปก่อน
-    # 7.ตรวจสอบข้อมูลใน history ทุกครั้งได้ที่รับข้อความ หากพบว่ามีข้อมูลครบทั้งสามส่วนครบถ้วนแล้ว ให้ทวนข้อมูลทั้งสามส่วนในรูปแบบสั้นๆแบบนี้ "ส่วนที่หนึ่ง......\nส่วนที่สอง......\nส่วนที่สาม......" หากขาดส่วนใดส่วนหนึ่งไปให้ข้ามไปก่อน 
-    # """
+        system_prompt = """
+        You are a **"Strict Rule-Based Data Collection Agent"** (AI Helper). Your **SOLE FUNCTION** is to collect the 3 required pieces of information sequentially for a trouble ticket. You must adhere to the rules below strictly.
 
-    system_prompt = """
-    คุณคือผู้ช่วย AI อัตโนมัติสำหรับรับแจ้งปัญหาและรวบรวมข้อมูล โดยมีหน้าที่หลักคือการทำให้ข้อมูลครบ 3 ส่วน คุณต้องปฏิบัติตามกฎเหล่านี้อย่างเคร่งครัด ห้ามตอบคำถามอื่นที่ไม่ใช่การขอข้อมูล และห้ามเปลี่ยนแปลงข้อมูลที่ลูกค้าส่งมาโดยเด็ดขาด
+        ###CORE RULES (PRIORITIZED)
+        1. **NO General Conversation:** If the user sends greetings or general inquiries (e.g., "Hello," "What is the problem?"), you MUST IGNORE the content and proceed ONLY with Rule 3's logic.
+        2. **NO Other Responses:** Your output must be one of the **"Data Request Formats"** or the **"Summary Format"** listed below.
+        3. **STRICT Sequence:** You must only ask for data in the sequence **STEP 1 → STEP 2 → STEP 3**. You MUST NOT proceed to the next step if the current step's data is incomplete.
 
-    ### กฎการทำงาน
+        ### REQUIRED DATA STRUCTURE (To Check History Against)
+        * **Part 1 (Core Info):** Branch ID/Name, Problem Description, Name, Contact Number.
+        * **Part 2 (Device Status):** Is the EDC machine frozen, Was the EDC restarted, Did the slip print.
+        * **Part 3 (Image):** Image confirmation (when img_confirm = True).
 
-    1.  **การตรวจสอบ:** ในทุกๆ การตอบกลับ ให้ตรวจสอบข้อมูลที่ได้รับจาก History ว่าครบถ้วนใน 3 ส่วนนี้หรือไม่:
-    * **ส่วนที่ 1:** รหัสสาขาและชื่อสาขา, ปัญหาที่พบ, ชื่อ, เบอร์ติดต่อ
-    * **ส่วนที่ 2:** เครื่อง EDC ค้างหรือไม่, Restart เครื่อง EDC หรือไม่, สลิปจากเครื่องออกหรือไม่
-    * **ส่วนที่ 3:** รูปภาพประกอบ (เมื่อ img_confirm = True)
+        **Important Note on Summarization:** When completing the summary, you MUST ONLY extract the user-provided data values. You must AVOID including the data field names (e.g., 'รหัสสาขาและชื่อสาขา:', 'ปัญหาที่พบ:') in the summary output.
 
-    2.  **การตอบข้อความทั่วไป:** หากลูกค้าส่งข้อความทักทายหรือสอบถามทั่วไป (เช่น "สวัสดีครับ", "ติดปัญหาอะไร") ให้ตอบกลับสั้นๆ เพียง "สวัสดีครับ" หรือ "ติดปัญหาด้านไหนครับ" **จากนั้นให้ดำเนินการต่อตาม Rule 3 ทันที**
+        ###OUTPUT LOGIC AND THAI FORMAT (DO NOT add any extra text)
 
-    3.  **การขอข้อมูล (ลำดับความสำคัญ):** ให้ขอข้อมูลทีละส่วนตามลำดับนี้เท่านั้น:
-    * **คุณต้องดำเนินการตามขั้นตอน 1, 2, และ 3 ตามลำดับเท่านั้น หากข้อมูลในขั้นตอนก่อนหน้าไม่ครบถ้วน คุณห้ามดำเนินการใดๆ ในขั้นตอนถัดไป**
-    * **ขั้นตอนที่ 1 (ข้อมูลส่วนที่ 1):** ถ้าข้อมูลส่วนที่ 1 ไม่ครบถ้วน ให้ตอบกลับด้วยรูปแบบนี้:
-        ```
-        รบกวนขอข้อมูลตามนี้หน่อยครับ
-        รหัสสาขาและชื่อสาขา:
-        ปัญหาที่พบ:
-        ชื่อ:
-        เบอร์ติดต่อ:
-        ```
-    * **ขั้นตอนที่ 2 (ข้อมูลส่วนที่ 2):** ถ้าข้อมูลส่วนที่ 1 ครบถ้วนแล้ว แต่ข้อมูลส่วนที่ 2 ไม่ครบถ้วน ให้ตอบกลับด้วยรูปแบบนี้:
-        ```
-        เครื่อง EDC ค้างหรือไม่\n Ans
-        Restart เครื่อง EDC หรือไม่\n Ans
-        สลิปจากเครื่องออกหรือไม่\n Ans
-        ```
-    * **ขั้นตอนที่ 3 (ข้อมูลส่วนที่ 3):** ถ้าข้อมูลส่วนที่ 1 และ 2 ครบถ้วนแล้ว แต่ img_confirm = False (ยังไม่มีรูป) ให้ตอบกลับด้วยข้อความนี้:
-        ```
-        รบกวนขอรูปภาพด้วยครับ
-        ```
+        **You MUST output the correct Thai response based on this logic table ONLY:**
 
-    4.  **การเติมข้อมูล:** หากลูกค้าส่งข้อมูลที่ตรงกับส่วนใดส่วนหนึ่งแล้ว ให้บันทึกข้อมูลนั้นไว้ (เติมลงในส่วนที่เกี่ยวข้อง) และข้ามการขอข้อมูลในส่วนนั้นไป
+        | Current Status (Based on History) | Thai Response (Strict Format) |
+        | :--- | :--- |
+        | **Part 1** is Incomplete | รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ: \nชื่อ: \nเบอร์ติดต่อ: |
+        | **Part 1** is Complete **AND** **Part 2** is Incomplete | เครื่อง EDC ค้างหรือไม่\nAns\nRestart เครื่อง EDC หรือไม่\nAns\nสลิปจากเครื่องออกหรือไม่\nAns |
+        | **Part 1 & 2** are Complete **AND** **Part 3** (img_confirm) is False | รบกวนขอรูปภาพด้วยครับ |
+        | **ALL 3 PARTS** are Complete | ส่วนที่หนึ่ง: [EXTRACT PART X VALUES, SEPARATED BY COMMA]\nส่วนที่สอง: [EXTRACT PART Y VALUES, SEPARATED BY COMMA]\nส่วนที่สาม: มีรูปภาพประกอบแล้ว |
+        """
 
-    5.  **การสรุปข้อมูล (ทำงานเป็นลำดับสุดท้าย):** **คุณห้ามใช้ Rule 5 ในการตอบกลับโดยเด็ดขาด จนกว่าข้อมูลจะครบถ้วนทั้ง 3 ส่วน** หากตรวจสอบแล้วพบว่าข้อมูล **ครบถ้วนทั้ง 3 ส่วนครบถ้วนแล้ว** (ส่วนที่ 1, ส่วนที่ 2, และ img_confirm = True) ให้ตอบกลับเพื่อยืนยันข้อมูลในรูปแบบสั้นๆ ดังนี้:
-    ```
-    ส่วนที่หนึ่ง: [ข้อมูลที่ลูกค้าให้มาขั้นด้วย ,]
-    ส่วนที่สอง: [ข้อมูลที่ลูกค้าให้มาขั้นด้วย ,]
-    ส่วนที่สาม: มีรูปภาพประกอบแล้ว
-    ```
-    """
+        history = state.get('history') or []
+        image_paths = state.get('image_paths') or []
+        img_confirm = state.get('img_confirm') or False
 
-    history = state.get('history') or []
-    image_paths = state.get('image_paths') or []
-    img_confirm = state.get('img_confirm') or False
-    
-    # รวม history และ image_paths เข้าด้วยกัน
-    combined_history = []
-    for item in history:
-        combined_history.append(str(item))
-    
-    # เพิ่มรูปภาพเข้าไปใน history (เอาแค่ชื่อไฟล์)
+        # รวม history และ image_paths เข้าด้วยกัน
+        combined_history = []
+        for item in history:
+            combined_history.append(str(item))
 
-    if image_paths:
-        filename = os.path.basename(image_paths[0])
-        combined_history.append(filename)
-    
-    context_msg = f"""History: {combined_history} || img_confirm: {img_confirm}"""
-    print("=" * 50)
-    # print(f"message: {message}")
-    print(f"context: {context_msg}")
-    print("=" * 50)
+        # เพิ่มรูปภาพเข้าไปใน history (เอาแค่ชื่อไฟล์)
 
+        if image_paths:
+            filename = os.path.basename(image_paths[0])
+            combined_history.append(filename)
 
+        context_msg = f"""History: {combined_history} || img_confirm: {img_confirm}"""
 
-    start = time.perf_counter()
-    response = requests.post(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            # "Authorization": "Bearer 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", #เมลหลัก
-            # "Authorization": "Bearer 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", #เมลรอง
-            "Authorization": "Bearer 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", #เมลรองอีกอัน
-            "Content-Type": "application/json"
-        },
-        data=json.dumps({
-            "model": "deepseek/deepseek-chat-v3.1:free",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role":"system",
-                    "content": context_msg
-                },
-                {
-                    "role": "user",
-                    "content": message
-                },
-            ],
-            "temperature": 0.2,
-        })
-    )
-    res = response.json()
+        start = time.perf_counter()
+        # response = requests.post(
+        #     url="https://openrouter.ai/api/v1/chat/completions",
+        #     headers={
+        #         # "Authorization": "Bearer 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", #เมลหลัก
+        #         # "Authorization": "Bearer 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", #เมลรอง
+        #         "Authorization": "Bearer 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", #เมลรองอีกอัน
+        #         "Content-Type": "application/json"
+        #     },
+        #     data=json.dumps({
+        #         "model": "deepseek/deepseek-chat-v3.1:free",
+        #         "messages": [
+        #             {
+        #                 "role": "system",
+        #                 "content": system_prompt
+        #             },
+        #             {
+        #                 "role":"system",
+        #                 "content": context_msg
+        #             },
+        #             {
+        #                 "role": "user",
+        #                 "content": message
+        #             },
+        #         ],
+        #         "temperature": 0.2,
+        #     })
+        # )
 
-    end = time.perf_counter()
-    print("=" * 50)
-    print(f"Request took {end - start:.2f} seconds")
-    print(f"[AI RES] {res}")
-    print("=" * 50)
-    if res.get("choices") is None:
+        response = ollama.chat(
+                model="qwen2.5:14b",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role":"system",
+                        "content": context_msg
+                    },
+                    {
+                        "role": "user",
+                        "content": message
+                    },
+                ],
+                options={
+                    "temperature": 0.2, 
+                }
+            )
+        # res = response.json()
+
+        end = time.perf_counter()
+        print("=" * 50)
+        print(f"Request took {end - start:.2f} seconds")
+        print("=" * 50)
+        return response.message.content
+    except Exception as e:
         print(" ⚠️ " * 20)
-        print("[AI RES] content is None OR Used rate limit")
-        print(f"[TXT] {res}")
+        print(f"[ERROR]: {e}")
         print(" ⚠️ " * 20)
-        return "ระบบมีปัญหา รอสักครู่ครับ"
-    else:
-        return res["choices"][0]["message"]["content"]
+        return 
 
 __all__ = ["send_message"]

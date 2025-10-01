@@ -147,7 +147,7 @@ def _download_line_image(message_id: str) -> str:
             f.write(chunk)
 
     # ตรวจชนิดรูป
-    kind = imghdr.what(tmp_raw_path)  # 'jpeg','png',... หรือ None
+    kind = imghdr.what(tmp_raw_path)
     if not kind:
         try:
             os.remove(tmp_raw_path)
