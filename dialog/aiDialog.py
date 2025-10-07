@@ -1,5 +1,3 @@
-import requests
-import json
 import ollama
 import time
 import os
@@ -54,33 +52,6 @@ def send_message(message: str, state: dict[str, any]) -> str:
         context_msg = f"""History: {combined_history} || img_confirm: {img_confirm}"""
 
         start = time.perf_counter()
-        # response = requests.post(
-        #     url="https://openrouter.ai/api/v1/chat/completions",
-        #     headers={
-        #         # "Authorization": "Bearer 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", #เมลหลัก
-        #         # "Authorization": "Bearer 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", #เมลรอง
-        #         "Authorization": "Bearer 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", #เมลรองอีกอัน
-        #         "Content-Type": "application/json"
-        #     },
-        #     data=json.dumps({
-        #         "model": "deepseek/deepseek-chat-v3.1:free",
-        #         "messages": [
-        #             {
-        #                 "role": "system",
-        #                 "content": system_prompt
-        #             },
-        #             {
-        #                 "role":"system",
-        #                 "content": context_msg
-        #             },
-        #             {
-        #                 "role": "user",
-        #                 "content": message
-        #             },
-        #         ],
-        #         "temperature": 0.2,
-        #     })
-        # )
 
         response = ollama.chat(
                 model="qwen2.5:14b",

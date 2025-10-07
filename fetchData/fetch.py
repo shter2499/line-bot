@@ -3,8 +3,7 @@
 แนะนำให้ปรับเป็น verify=True และใช้ certificate ที่ถูกต้องใน production.
 """
 
-from typing import Any, Dict, Optional
-from urllib import response
+from typing import Any, Dict
 from requests import RequestException
 import json
 import requests
@@ -13,7 +12,7 @@ import mysql.connector
 import datetime
 import pytz
 
-Header_token = "FC22D442-AD1F-4ABF-B401-84AD6B95423A"
+Header_token = "F91D9A0A-A60B-4A6C-94E9-27BA1CB96DD0" #EXPIRED 10/10/2025
 DEFAULT_URL = "https://192.168.3.107:8080/api/v3/requests/"
 DEFAULT_HEADERS = {"authtoken": Header_token}
 
@@ -92,11 +91,10 @@ def search_duplicate(storeID: str):
             start_epoch / 1000, thailand_tz)
         end_dt = datetime.datetime.fromtimestamp(end_epoch / 1000, thailand_tz)
 
-        print(
-            f"ค้นหาข้อมูลช่วงวันที่: {start_dt.strftime('%Y-%m-%d')} ถึง {end_dt.strftime('%Y-%m-%d')}")
+        # print(f"ค้นหาข้อมูลช่วงวันที่: {start_dt.strftime('%Y-%m-%d')} ถึง {end_dt.strftime('%Y-%m-%d')}")
 
         url = "http://192.168.1.12:443/api/v3/requests"
-        headers = {"authtoken": "57197C2B-D8E6-4DF3-94B9-37B325E35750"}
+        headers = {"authtoken": "9568C77F-4978-4920-ABCD-7700E99A3B9F"}
         input_data = f'''{{
             "list_info": {{
                 "row_count": 1000,
@@ -116,22 +114,23 @@ def search_duplicate(storeID: str):
                         "value": "{start_epoch}",
                         "logical_operator": "AND"
                     }},
-                                        {{
-                        "field": "subcategory",
-                        "condition": "greater than",
-                        "value": "{start_epoch}",
+                    {{
+                        "field": "subject",
+                        "condition": "contains",
+                        "value": "POS#1 Promptpay",
                         "logical_operator": "AND"
-                    }}
+                    }},
                 ]
             }}
         }}'''
 
         # ถ้าจะให้แสดงวันที่ตรงกับ timezone ของไทยต้องเลือกห้าโมงเย็นของเมื่อวาน ในเว็บ epochconverter หรือค่า epoch -61200000 ms ถึงจะได้ GMT+7
-        # 1754438400000 - 61200000 = 1754372400000
 
         params = {'input_data': input_data}
-        response = requests.get(url, headers=headers,params=params, verify=False)
-        return response.json()
+        request = requests.get(url, headers=headers,params=params, verify=False)
+        res = request.json()
+
+        return res
     except RequestException as exc:
         print(" ⚠️ " * 20)
         print(f"[ERROR] request_failed: {exc}")

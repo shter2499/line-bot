@@ -14,13 +14,6 @@ import time
 import threading
 from typing import Dict, List, Optional, Callable
 
-# QUESTIONS: List[str] = [
-#     "เพื่อเป็นการแก้ปัญหาให้ตรงจุดรบกวนลูกค้าตอบคำถามเบื้องต้นทั้งหมดสามข้อค่ะ \"เครื่อง EDC ค้างหรือไม่คะ\" ตอบเป็นตัวเลขนะคะ\n1. ค้าง\n2. ไม่ค้าง",
-#     "ลูกค้าได้ทำการ Restart เครื่อง EDC หรือไม่คะ ตอบเป็นตัวเลขนะคะ\n1. ใช่\n2. ไม่",
-#     "สลิปที่เครื่อง EDC ออกหรือไม่คะ ตอบเป็นตัวเลขนะคะ\n1. ออก\n2. ไม่ออก",
-#     "รบกวนลูกค้าพิมพ์รายละเอียดเพื่อบันทึกข้อมูลลงระบบค่ะ\nชื่อสาขาหรือรหัสสาขา:\nชื่อผู้แจ้ง:\nเบอร์โทรผู้แจ้ง:\nรายละเอียดปัญหา:",
-#     "รบกวนขอรูปภาพสลิปที่มีปัญหาด้วยค่ะ",
-# ]
 
 SESSION_TIMEOUT_SEC = 600
 _reply_cb: Optional[Callable[[str, str], None]] = None
@@ -144,9 +137,11 @@ def _summary(state: Dict, txt) -> str:
     user_id = state.get("uid")
     state = _load_state(user_id)
     branch = find_branch(txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0])
+    header = parse_header(txt.split("ส่วนที่สอง:")[1].split('\n')[0])
     dup = search_duplicate(branch)
-    if dup['list_info']['total_count'] > 0:
-        _reply_cb(state.get("reply_token", ""), f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup["requests"][0]["id"]}")
+    
+    if dup["response_status"][0]["status_code"] == 2000 and dup['list_info']['total_count'] > 0:
+        _reply_cb(state.get("reply_token", ""), f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup['requests'][0]['id']}")
         _clear(user_id)
         return 
     try:
@@ -172,7 +167,7 @@ def _summary(state: Dict, txt) -> str:
                 print(f"[WARN] upload failed for {img_path}: {e}")
     payload = {
         "request": {
-            "subject": detail,
+            "subject": f"POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})",
             "description": f"ชื่อสาขาหรือรหัสสาขา: {branch}<br />ปัญหาที่พบ: {detail}<br />ชื่อ: {user}<br />เบอร์โทรติดต่อ: {phone}",
             "requester": {
                 "name": branch
@@ -226,9 +221,6 @@ def _summary(state: Dict, txt) -> str:
     }
 
     resp = fetch(payload)
-    print("=" * 50)
-    print(f"[RES] {resp}")
-    print("=" * 50)
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -311,5 +303,19 @@ def find_branch(storeID: str):
         print(" ⚠️ " * 20)
         return None
 
+
+def parse_header(text: str):
+    edc_freeze = text.split(",")[0]
+    edc_slip = text.split(",")[2]
+    if("ไม่" in edc_freeze):
+        edc_freeze = "ไม่ค้าง"
+    elif("ใช่" in edc_freeze):
+        edc_freeze = "ค้าง"
+
+    if("ไม่" in edc_slip):
+        edc_slip = "ไม่ออก"
+    elif("ใช่" in edc_slip):
+        edc_slip = "ออก"
+    return f"EDC {edc_freeze}, Slip EDC {edc_slip}"
 
 __all__ = ["process_step_message", "process_image_message","set_reply_callback"]
