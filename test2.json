@@ -1,0 +1,75 @@
+{
+    "request": {
+        "subject": "POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS(EDC  ค้าง, Slip EDC ไม่ออก)",
+        "description": "ชื่อผู้แจ้ง  : แชมป์\nเบอร์ติดต่อ : 0812345678\nสถานที่/บริษัท/สาขา พบปัญหา : DQ1350-BIG C BANGPAKOK\nปัญหาที่พบ/                         /คำร้องขอ : บิลไม่ตัด\nSN : N/A\nModel : Not Specified",
+        "requester": {
+            "name": "DQ1350-BIG C BANGPAKOK"
+        },
+        "template": {
+            "id": "5101",
+            "name": "New Aloha System for Minor (DQ-BT-BS-CF)",
+            "is_service_template": false
+        },
+        "site": {
+            "id": "302",
+            "n   name": "Dairy Queen - Standard A"
+        },
+        "item": {
+            "id": "4501",
+            "name": "EDC – Payment - ITMX"
+        },
+        "priority": {
+            "id": "901",
+            "name": "Severity 5"
+        },
+        "mode": {
+            "id": "4",
+            "name": "Chat"
+        },
+        "status": {
+            "id": "2",
+            "name": "Open",
+            "color": "#0066ff"
+        },
+        "group": {
+            "id": "463",
+            "name": "Service Desk",
+            "site": {
+                "id": 302
+            }
+        },
+        "category": {
+            "id": "603",
+            "name": "SOFTWARE"
+        },
+        "subcategory": {
+            "id": "3310",
+            "name": "EDC Payment"
+        },
+        "technician": {
+            "id": "5402",
+            "email_id": "Helpdesk@p5-management.com",
+            "name": "Service Desk",
+            "phone": null,
+            "mobile": null
+        },
+        "udf_fields": {
+            "udf_sline_902": "0812345678",
+            "udf_sline_62": "สาขา",
+            "udf_pick_1801": "Dairy Queen",
+            "udf_pick_8705": "EDC",
+            "udf_pick_9601": "BBL",
+            "udf_sline_611": "N/A",
+            "udf_sline_1507": "POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS(EDC  ค้าง, Slip EDC ไม่ออก)",
+            "udf_mline_4203": "ชื่อผู้แจ้ง  : แชมป์\nเบอร์ติดต่อ : 0812345678\nสถานที่/บริษัท/สาขา พบปัญหา : DQ1350-BIG C BANGPAKOK\nปัญหาที่พบ/คำร้องขอ : บิลไม่ตัด\nSN : N/                             /A\nModel : Not Specified",
+            "udf_date_68": {
+                "display_value": "2025/11/28 07:35",
+                "value": "1764229800000"
+            },
+            "udf_pick_64": "วัชริศ ชมกลิ่น",
+            "udf_pick_612": "NO",
+            "udf_pick_4802": "P5",
+            "udf_pick_9302": "Software"
+        }
+    }
+}

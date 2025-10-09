@@ -6,8 +6,6 @@ State management now uses Redis via session.RedisSession instead of in-memory di
 from __future__ import annotations
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
 from dialog.aiDialog import send_message, process_message
-import predict_classifier
-import predict_cr_classifier
 from session import RedisSession
 
 import os
@@ -264,22 +262,9 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     state["context_confirm"] = True
     _save_state(user_id, state)
 
-    res = ''
-    
-    if predic.get("prediction") == "edc":
-        res = send_message(lower, state)
-        print("=" * 50)
-        print(f"[INFO] AI Response: {res}")
-        print("=" * 50)
-        if reply_token and _reply_cb:
-            _reply_cb(reply_token, res)
-        return None
-
-    # res = send_message(lower, state)
-    # print(f"[INFO] AI Response: {res}")
-
-    # if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
-    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
+    res = send_message(lower, state)
+    # res = process_message(lower, state)
+    if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
         print("[INFO] Proceeding to summary...")
         _summary(state, res)
         return None
