@@ -22,6 +22,14 @@ def _mask_len(v: str | None) -> str:
     except Exception:
         return "<provided>"
 
+# Helpful diagnostics for new environments (won't print secret values)
+print("[BOOT] ENV diagnostics:")
+print(f"  LINE_CHANNEL_ACCESS_TOKEN: {_mask_len(os.environ.get('LINE_CHANNEL_ACCESS_TOKEN'))}")
+print(f"  LINE_CHANNEL_SECRET     : {_mask_len(os.environ.get('LINE_CHANNEL_SECRET'))}")
+print(f"  REDIS_URL               : {os.environ.get('REDIS_URL', '<unset>')}")
+print(f"  MYSQL_HOST              : {os.environ.get('MYSQL_HOST', '<unset>')}")
+print(f"  OLLAMA_HOST             : {os.environ.get('OLLAMA_HOST', '<unset>')}")
+
 CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 

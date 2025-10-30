@@ -26,7 +26,11 @@ REQUESTS_API_URL = os.getenv(
     "REQUESTS_API_URL", "https://192.168.3.107:8080/api/v3/requests/")
 REQUESTS_API_TOKEN = os.getenv(
     # EXPIRED 7/11/2025 (dmy)
+<<<<<<< HEAD
     "REQUESTS_API_TOKEN", "C3504DA6-5453-4CC5-B7FF-F81D915C2588")
+=======
+    "REQUESTS_API_TOKEN", "12FB66B4-EB5D-4B34-B7CC-7A128AE829DD")
+>>>>>>> 0e14b7f (ปรับให้บอทไม่ตอบถ้าไม่เกี่ยวข้อง)
 REQUESTS_UPLOAD_URL = os.getenv(
     "REQUESTS_UPLOAD_URL", "https://192.168.3.107:8080/api/v3/requests/upload")
 REQUESTS_VERIFY_SSL = _strtobool(

@@ -267,14 +267,9 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
         print("[INFO] Proceeding to summary...")
         _summary(state, res)
-        return None
-
-    if predic.get("prediction") == "other":
-        if reply_token and _reply_cb:
-            _reply_cb(reply_token, "")
-        return None
-
-    if reply_token and _reply_cb:
+    elif res == "ไม่เกี่ยวกับ EDC":
+        _reply_cb(reply_token,"")
+    else:
         _reply_cb(reply_token, res)
     return None
 

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Flask>=3.0.3
 line-bot-sdk>=3.11.0
 python-dotenv>=1.0.1
@@ -11,3 +12,14 @@ torch>=2.9.1
 transformers>=4.46
 safetensors>=0.4.3
 gunicorn>=21.0.2
+=======
+Flask>=3.0.0
+line-bot-sdk>=3.11.0
+python-dotenv>=1.0.1
+requests>=2.31.0
+redis>=5.0.1
+gunicorn>=21.2.0
+mysql-connector-python>=8.3.0
+pytz>=2024.1
+ollama>=0.3.0
+>>>>>>> 0e14b7f (ปรับให้บอทไม่ตอบถ้าไม่เกี่ยวข้อง)
