@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    container_name: line-bot-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"             # เผื่อกรณี Linux/WSL
+    volumes:
+      - ./tmp_uploads:/app/tmp_uploads
+    restart: unless-stopped

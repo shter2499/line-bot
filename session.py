@@ -3,27 +3,51 @@ import json
 import os
 from typing import Dict, Any
 
+
 class RedisSession:
-    def __init__(self, host='localhost', port=6379, db=0, password=None, ttl_seconds=600):
+    def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0, password: str | None = None, ttl_seconds: int = 600):
         """
-        เชื่อมต่อกับ Redis server และตั้งค่าพื้นฐาน
-        
-        Args:
-            host (str): Redis host.
-            port (int): Redis port.
-            db (int): Redis database number.
-            password (str): Password สำหรับเชื่อมต่อ Redis.
-            ttl_seconds (int): ระยะเวลาหมดอายุของ session เป็นวินาที (ค่าเริ่มต้น 10 นาที).
+        เชื่อมต่อกับ Redis server โดยอ่านค่าจาก Environment Variables ก่อน
+        - REDIS_URL: redis://user:pass@host:port/db
+        - หากไม่มี REDIS_URL จะใช้ REDIS_HOST/REDIS_PORT/REDIS_DB (fallback ด้วยพารามิเตอร์ที่ส่งเข้า)
+        - SESSION_TTL: อายุ session เป็นวินาที (ค่าเริ่มต้น 600)
         """
-        self.ttl = ttl_seconds
+        # TTL: env overrides parameter; falls back to provided default
+        self.ttl = int(os.getenv('SESSION_TTL', str(ttl_seconds)))
+
+        url = os.getenv('REDIS_URL')
+        # url = "redis://host.docker.internal:6379/0"
+        print(f"[Redis] Initializing RedisSession with TTL={self.ttl} seconds")
+        print(f"[Redis] REDIS_URL: {url}")
         try:
-            self.redis_client = redis.Redis(
-                host=host,
-                port=port,
-                db=db,
-                password=password,
-                decode_responses=False # เก็บข้อมูลในรูปแบบ bytes
-            )
+            if url:
+                print(f"[Redis] connecting via URL: {url}")
+                self.redis_client = redis.from_url(
+                    url,
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=5,
+                    health_check_interval=30,
+                    retry_on_timeout=True,
+                )
+            else:
+                # Fallback to individual components (env first, then params)
+                env_host = os.getenv('REDIS_HOST', host)
+                env_port = int(os.getenv('REDIS_PORT', str(port)))
+                env_db = int(os.getenv('REDIS_DB', str(db)))
+                env_password = os.getenv('REDIS_PASSWORD', password if password is not None else None)
+                print(f"[Redis] connecting to {env_host}:{env_port}/{env_db}")
+                self.redis_client = redis.Redis(
+                    host=env_host,
+                    port=env_port,
+                    db=env_db,
+                    password=env_password,
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=5,
+                    health_check_interval=30,
+                )
+
             self.redis_client.ping()
             print("Successfully connected to Redis.")
         except redis.exceptions.ConnectionError as e:
@@ -38,7 +62,7 @@ class RedisSession:
             data (Dict): ข้อมูลที่จะบันทึก.
         """
         key = f"session:{session_id}"
-        json_data = json.dumps(data)
+        json_data = json.dumps(data, ensure_ascii=False)
         self.redis_client.set(key, json_data, ex=self.ttl)
     
     def get(self, session_id: str) -> Dict[str, Any] | None:

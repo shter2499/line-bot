@@ -1,45 +1,34 @@
-**Edit a file, create a new file, and clone from Bitbucket in under 2 minutes**
+## LINE Bot (Flask) with Redis-backed sessions
 
-When you're done, you can delete the content in this README and update the file with details for others getting started with your repository.
+This project implements a LINE Messaging API bot using Flask. Per-user conversation state is stored in Redis via `session.RedisSession`. The main entrypoint is `script.py`, which exposes a Flask app as `app`.
 
-*We recommend that you open this README in another tab as you perform the tasks below. You can [watch our video](https://youtu.be/0ocf7u76WSo) for a full demo of all the steps in this tutorial. Open the video in a new tab to avoid leaving Bitbucket.*
+You can run locally or via Docker. The Docker setup uses Gunicorn to serve `script:app` and a Redis service.
 
----
+### Prerequisites
+- LINE channel secret and access token
+- Docker Desktop (recommended) or Python 3.11
 
-## Edit a file
+### Environment variables
+Create a `.env` file based on `.env.example`:
 
-You’ll start by editing this README file to learn how to edit a file in Bitbucket.
+- `LINE_CHANNEL_SECRET` — LINE channel secret
+- `LINE_CHANNEL_ACCESS_TOKEN` — LINE channel access token
+- `REDIS_URL` — e.g. `redis://localhost:6379/0` for local, or `redis://redis:6379/0` in Docker Compose
 
-1. Click **Source** on the left side.
-2. Click the README.md link from the list of files.
-3. Click the **Edit** button.
-4. Delete the following text: *Delete this line to make a change to the README from Bitbucket.*
-5. After making your change, click **Commit** and then **Commit** again in the dialog. The commit page will open and you’ll see the change you just made.
-6. Go back to the **Source** page.
+### Run with Docker
+1. Copy `.env.example` to `.env` and fill in your credentials
+2. Start services:
+	- `docker compose up --build -d`
+3. The Flask app will be served at `http://localhost:8000`
 
----
+Expose `/callback` as your LINE webhook URL. For local development, use a tunnel (e.g. ngrok) and point to `http://localhost:8000/callback`.
 
-## Create a file
+### Run without Docker (optional)
+1. Create a virtual environment and install from `requirements.txt`
+2. Set environment variables (or `.env`)
+3. Run `gunicorn -w 2 -k gthread -b 0.0.0.0:8000 script:app`
 
-Next, you’ll add a new file to this repository.
-
-1. Click the **New file** button at the top of the **Source** page.
-2. Give the file a filename of **contributors.txt**.
-3. Enter your name in the empty file space.
-4. Click **Commit** and then **Commit** again in the dialog.
-5. Go back to the **Source** page.
-
-Before you move on, go ahead and explore the repository. You've already seen the **Source** page, but check out the **Commits**, **Branches**, and **Settings** pages.
-
----
-
-## Clone a repository
-
-Use these steps to clone from SourceTree, our client for using the repository command-line free. Cloning allows you to work on your files locally. If you don't yet have SourceTree, [download and install first](https://www.sourcetreeapp.com/). If you prefer to clone from the command line, see [Clone a repository](https://confluence.atlassian.com/x/4whODQ).
-
-1. You’ll see the clone button under the **Source** heading. Click that button.
-2. Now click **Check out in SourceTree**. You may need to create a SourceTree account or log in.
-3. When you see the **Clone New** dialog in SourceTree, update the destination path and name if you’d like to and then click **Clone**.
-4. Open the directory you just created to see your repository’s files.
-
-Now that you're more familiar with your Bitbucket repository, go ahead and add a new file locally. You can [push your change back to Bitbucket with SourceTree](https://confluence.atlassian.com/x/iqyBMg), or you can [add, commit,](https://confluence.atlassian.com/x/8QhODQ) and [push from the command line](https://confluence.atlassian.com/x/NQ0zDQ).
+### Notes
+- Images uploaded by users are stored under `tmp_uploads/`. In Docker, this folder is mounted as a volume for persistence.
+- Redis connection is configured via `REDIS_URL`. In Docker Compose, the default is `redis://redis:6379/0`.
+- The bot replies only when all required parts are present (details, EDC status, and image), then sends a summary.

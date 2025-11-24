@@ -1,40 +1,35 @@
 """
 State management now uses Redis via session.RedisSession instead of in-memory dict.
-- Session TTL is enforced by Redis; no manual _expire needed.
+- Session TTL is enforced by Redis; no manual _expire needed. ✅
 - Timers are managed in-process per instance (stored outside Redis) as they are not JSON-serializable.
 """
 from __future__ import annotations
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
-from dialog.aiDialog import send_message
+from dialog.aiDialog import send_message, process_message
+import predict_classifier
+import predict_cr_classifier
 from session import RedisSession
 
 import os
 import re
 import time
 import threading
-from typing import Dict, List, Optional, Callable
+from typing import Dict, Optional, Callable
 
 
 SESSION_TIMEOUT_SEC = 600
 _reply_cb: Optional[Callable[[str, str], None]] = None
-
 _redis: Optional[RedisSession] = None
+_timers: Dict[str, threading.Timer] = {}
 
 
 def _get_redis() -> RedisSession:
     global _redis
     if _redis is None:
-        host = "localhost"
-        port = 6379
-        db = 0
-        password = None
-        ttl = SESSION_TIMEOUT_SEC
-        _redis = RedisSession(host=host, port=port, db=db,
-                              password=password, ttl_seconds=ttl)
+        # Use environment-driven configuration from session.RedisSession
+        # This respects REDIS_URL / REDIS_HOST / REDIS_PORT inside Docker
+        _redis = RedisSession()
     return _redis
-
-
-_timers: Dict[str, threading.Timer] = {}
 
 
 def _default_state(uid: str) -> Dict:
@@ -109,9 +104,10 @@ def _auto_reply(user_id: str):
     if state.get("image_paths")[0] not in state["history"] and not state.get("context_confirm"):
         state["history"].append(state.get("image_paths")[0])
         _save_state(user_id, state)
-        _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
-        return 
-    
+        _reply_cb(state.get("reply_token", ""),
+                  "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
+        return
+
     res = send_message("ห้ามขอรูปซ้ำอีก", state)
     if state.get("context_confirm") and "ส่วนที่หนึ่ง:" in res:
         _summary(state, res)
@@ -139,11 +135,12 @@ def _summary(state: Dict, txt) -> str:
     branch = find_branch(txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0])
     header = parse_header(txt.split("ส่วนที่สอง:")[1].split('\n')[0])
     dup = search_duplicate(branch)
-    
+
     if dup["response_status"][0]["status_code"] == 2000 and dup['list_info']['total_count'] > 0:
-        _reply_cb(state.get("reply_token", ""), f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup['requests'][0]['id']}")
+        _reply_cb(state.get("reply_token", ""),
+                  f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup['requests'][0]['id']}")
         _clear(user_id)
-        return 
+        return
     try:
         detail = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[1]
         user = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[2]
@@ -165,12 +162,15 @@ def _summary(state: Dict, txt) -> str:
                         {"id": file_result['attachment']['id']})
             except Exception as e:
                 print(f"[WARN] upload failed for {img_path}: {e}")
+    cr_test = predict_cr_classifier.classify(detail)
+    
     payload = {
         "request": {
-            "subject": f"POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})",
-            "description": f"ชื่อสาขาหรือรหัสสาขา: {branch}<br />ปัญหาที่พบ: {detail}<br />ชื่อ: {user}<br />เบอร์โทรติดต่อ: {phone}",
+            # "subject": f"POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})",
+            "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
+            "description": f'ชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(",")[0]}<br />ปัญหาที่พบ: {detail}<br />ชื่อ: {user}<br />เบอร์โทรติดต่อ: {phone}',
             "requester": {
-                "name": branch
+                "name": branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]
             },
             "template": {
                 "name": "New Aloha System for Minor (DQ-BT-BS-CF) TEST",
@@ -231,7 +231,7 @@ def _summary(state: Dict, txt) -> str:
                     print(f"[WARN] remove image failed: {e}")
         try:
             ticket_id = resp['data']['request']['id']
-            res_txt = f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}"""
+            res_txt = f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}"""
             _reply_cb(state.get("reply_token", ""), res_txt)
             _clear(user_id)
         except Exception as e:
@@ -241,8 +241,13 @@ def _summary(state: Dict, txt) -> str:
 
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
+    print("START PROCESS STEP MESSAGE")
     state = _load_state(user_id)
-
+    predic = predict_classifier.classify(text)
+    print("=" * 50)
+    print(f"[PREDICTION] {predic}")
+    print("=" * 50)
+    
     if not state:
         state = _start(user_id)
     if reply_token:
@@ -250,21 +255,43 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
 
     msg = (text or "").strip()
     lower = msg.lower()
-    state["history"].append(lower)
-    state["context_confirm"] = True
 
     if lower == "ยกเลิก":
         _clear(user_id)
         return "ยกเลิกเซสชันแล้ว"
 
+    state["history"].append(lower)
+    state["context_confirm"] = True
     _save_state(user_id, state)
 
-    res = send_message(lower, state)
-    if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
+    res = ''
+    
+    if predic.get("prediction") == "edc":
+        res = send_message(lower, state)
+        print("=" * 50)
+        print(f"[INFO] AI Response: {res}")
+        print("=" * 50)
+        if reply_token and _reply_cb:
+            _reply_cb(reply_token, res)
+        return None
+
+    # res = send_message(lower, state)
+    # print(f"[INFO] AI Response: {res}")
+
+    # if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
+    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
         print("[INFO] Proceeding to summary...")
         _summary(state, res)
-    else:
+        return None
+
+    if predic.get("prediction") == "other":
+        if reply_token and _reply_cb:
+            _reply_cb(reply_token, "")
+        return None
+
+    if reply_token and _reply_cb:
         _reply_cb(reply_token, res)
+    return None
 
 
 def process_image_message(user_id: str, image_path: str, reply_token: Optional[str] = None) -> Optional[str]:
@@ -272,7 +299,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     if not state:
         print(f"[WARN] image from user without session: {user_id}")
         state = _start(user_id)
-        
+
     image_paths = state.get("image_paths", [])
     image_paths.append(image_path)
     state["image_paths"] = image_paths
@@ -291,12 +318,13 @@ def find_branch(storeID: str):
     try:
         pattern = r"\d{6}|\d{5}|\d{4}"
         matched = re.search(pattern, storeID)
+        print(f"[PATTERN]: {pattern}, Matched: {matched}")
 
         if matched:
             ID = matched.group(0)
             result = fetch_store(ID)
-            return result[0]["site_name"] 
-        
+            return result[0]["site_name"]
+
     except Exception as e:
         print(" ⚠️ " * 20)
         print(f"[ERROR] find_branch error: {e}")
@@ -307,15 +335,16 @@ def find_branch(storeID: str):
 def parse_header(text: str):
     edc_freeze = text.split(",")[0]
     edc_slip = text.split(",")[2]
-    if("ไม่" in edc_freeze):
+    if ("ไม่" in edc_freeze):
         edc_freeze = "ไม่ค้าง"
-    elif("ใช่" in edc_freeze):
+    elif ("ใช่" in edc_freeze):
         edc_freeze = "ค้าง"
 
-    if("ไม่" in edc_slip):
+    if ("ไม่" in edc_slip):
         edc_slip = "ไม่ออก"
-    elif("ใช่" in edc_slip):
+    elif ("ใช่" in edc_slip):
         edc_slip = "ออก"
     return f"EDC {edc_freeze}, Slip EDC {edc_slip}"
 
-__all__ = ["process_step_message", "process_image_message","set_reply_callback"]
+
+__all__ = ["process_step_message", "process_image_message", "set_reply_callback"]

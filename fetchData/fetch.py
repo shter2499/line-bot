@@ -1,6 +1,8 @@
 """
-หมายเหตุ: ปัจจุบันมีการปิด verify SSL (verify=False) *ไม่ปลอดภัย* ใช้เฉพาะ DEV.
-แนะนำให้ปรับเป็น verify=True และใช้ certificate ที่ถูกต้องใน production.
+หมายเหตุ:
+- ปัจจุบันมีการปิด verify SSL (verify=False) ซึ่งไม่ปลอดภัย ใช้เฉพาะ DEV เท่านั้น
+- ย้ายค่าคอนฟิกที่เปลี่ยนตามสภาพแวดล้อม (URL, Token, DB host/port) ไปที่ Environment Variables
+    เพื่อให้ทำงานได้ทั้งบนเครื่องจริงและใน Docker โดยไม่แก้โค้ด
 """
 
 from typing import Any, Dict
@@ -11,10 +13,26 @@ import mimetypes
 import mysql.connector
 import datetime
 import pytz
+import os
 
-Header_token = "F91D9A0A-A60B-4A6C-94E9-27BA1CB96DD0" #EXPIRED 10/10/2025
-DEFAULT_URL = "https://192.168.3.107:8080/api/v3/requests/"
-DEFAULT_HEADERS = {"authtoken": Header_token}
+
+def _strtobool(val: str | None, default: bool = False) -> bool:
+    if val is None:
+        return default
+    return str(val).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+REQUESTS_API_URL = os.getenv(
+    "REQUESTS_API_URL", "https://192.168.3.107:8080/api/v3/requests/")
+REQUESTS_API_TOKEN = os.getenv(
+    # EXPIRED 7/11/2025 (dmy)
+    "REQUESTS_API_TOKEN", "C3504DA6-5453-4CC5-B7FF-F81D915C2588")
+REQUESTS_UPLOAD_URL = os.getenv(
+    "REQUESTS_UPLOAD_URL", "https://192.168.3.107:8080/api/v3/requests/upload")
+REQUESTS_VERIFY_SSL = _strtobool(
+    os.getenv("REQUESTS_VERIFY_SSL"), default=False)
+
+DEFAULT_HEADERS = {"authtoken": REQUESTS_API_TOKEN}
 
 
 def fetch(data: list[str]) -> Dict[str, Any]:
@@ -22,7 +40,7 @@ def fetch(data: list[str]) -> Dict[str, Any]:
 
     try:
         resp = requests.post(
-            DEFAULT_URL, headers=DEFAULT_HEADERS, data=inp_data, verify=False)
+            REQUESTS_API_URL, headers=DEFAULT_HEADERS, data=inp_data, verify=REQUESTS_VERIFY_SSL)
     except RequestException as exc:
         return {"ok": False, "status": None, "error": f"request_failed: {exc}"}
     status = resp.status_code
@@ -40,15 +58,16 @@ def fetch(data: list[str]) -> Dict[str, Any]:
 
 
 def uploadFile(img):
-    url = "https://192.168.3.107:8080/api/v3/requests/upload"
-    headers = {"authtoken": Header_token}
+    url = REQUESTS_UPLOAD_URL
+    headers = {"authtoken": REQUESTS_API_TOKEN}
 
     fileType = mimetypes.guess_type(img)
     files = []
     fileObj = ('input_file', (img, open(img, 'rb'), fileType[0]))
     files.append(fileObj)
 
-    response = requests.post(url, headers=headers, files=files, verify=False)
+    response = requests.post(url, headers=headers,
+                             files=files, verify=REQUESTS_VERIFY_SSL)
 
     if response.status_code == 201:
         return json.loads(response.text)
@@ -56,15 +75,20 @@ def uploadFile(img):
         return {"ok": False, "status": response.status_code, "error": response.text}
 
 
-def fetch_store(storeID: str):
+def fetch_store(storeID: str, host: str = "localhost", port: int = 3306, user: str = "root", password: str = "ranma2499", database: str = "store_name"):
     db_config = {
-        "host": "localhost",
-        "user": "root",
-        "password": "ranma2499",
-        "database": "store_name"
+        "host": os.getenv("MYSQL_HOST", host),
+        "port": int(os.getenv("MYSQL_PORT", port)),
+        "user": os.getenv("MYSQL_USER", user),
+        "password": os.getenv("MYSQL_PASSWORD", password),
+        "database": os.getenv("MYSQL_DATABASE", database),
     }
 
+    mydb = None
+    cursor = None
     try:
+        safe_cfg = {k: (v if k != "password" else "***") for k, v in db_config.items()}
+        print(f"[DB] Connecting to MySQL at {safe_cfg}")
         mydb = mysql.connector.connect(**db_config)
         cursor = mydb.cursor(dictionary=True)
         cursor.execute(
@@ -74,9 +98,19 @@ def fetch_store(storeID: str):
 
     except mysql.connector.Error as e:
         print(f"[ERROR] MySQL error: {e}")
+        # Return empty list to avoid None-index errors upstream
+        return []
     finally:
-        cursor.close()
-        mydb.close()
+        try:
+            if cursor is not None:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if mydb is not None and mydb.is_connected():
+                mydb.close()
+        except Exception:
+            pass
 
 
 def search_duplicate(storeID: str):
@@ -84,6 +118,8 @@ def search_duplicate(storeID: str):
         # เรียกใช้ฟังก์ชั่นเพื่อหาค่า epoch
         start_date = datetime.date.today().strftime('%Y-%m-%d')
         start_epoch, end_epoch = get_epoch(start_date)
+        dup_url = "http://192.168.1.12:443/api/v3/requests"
+        dup_token = "9F24A1C1-98A9-4C48-AEA3-7666D5DBC02B"
 
         # แสดงข้อมูลวันที่ที่จะค้นหา
         thailand_tz = pytz.timezone('Asia/Bangkok')
@@ -92,9 +128,11 @@ def search_duplicate(storeID: str):
         end_dt = datetime.datetime.fromtimestamp(end_epoch / 1000, thailand_tz)
 
         # print(f"ค้นหาข้อมูลช่วงวันที่: {start_dt.strftime('%Y-%m-%d')} ถึง {end_dt.strftime('%Y-%m-%d')}")
-
-        url = "http://192.168.1.12:443/api/v3/requests"
-        headers = {"authtoken": "9568C77F-4978-4920-ABCD-7700E99A3B9F"}
+        dup_api_url = os.getenv("DUP_API_URL", dup_url)
+        dup_api_token = os.getenv("DUP_API_TOKEN", dup_token) # EXP 08/11/2025 (dmy)   
+        dup_verify_ssl = _strtobool(os.getenv("DUP_VERIFY_SSL"), default=False)
+        url = dup_api_url
+        headers = {"authtoken": dup_api_token}
         input_data = f'''{{
             "list_info": {{
                 "row_count": 1000,
@@ -127,28 +165,23 @@ def search_duplicate(storeID: str):
         # ถ้าจะให้แสดงวันที่ตรงกับ timezone ของไทยต้องเลือกห้าโมงเย็นของเมื่อวาน ในเว็บ epochconverter หรือค่า epoch -61200000 ms ถึงจะได้ GMT+7
 
         params = {'input_data': input_data}
-        request = requests.get(url, headers=headers,params=params, verify=False)
+        request = requests.get(url, headers=headers,
+                               params=params, verify=dup_verify_ssl)
         res = request.json()
-
         return res
     except RequestException as exc:
         print(" ⚠️ " * 20)
         print(f"[ERROR] request_failed: {exc}")
         print(" ⚠️ " * 20)
         return {"ok": False, "status": None, "error": f"request_failed: {exc}"}
+    except Exception as e:
+        print(" ⚠️ " * 20)
+        print(f"[ERROR] search_duplicate failed: {e}")
+        print(" ⚠️ " * 20)
+        return {"ok": False, "status": None, "error": f"unexpected: {e}"}
 
 
 def get_epoch(start_date=None, end_date=None):
-    """
-    คำนวณค่า epoch timestamp สำหรับเขตเวลาไทย
-
-    Args:
-        start_date (str, optional): วันที่เริ่มต้นในรูปแบบ 'YYYY-MM-DD' เช่น '2025-08-05'
-        end_date (str, optional): วันที่สิ้นสุดในรูปแบบ 'YYYY-MM-DD' เช่น '2025-08-06'
-        ถ้าไม่ระบุจะใช้วันที่ปัจจุบัน (start=end=today)
-    Returns:
-        tuple: (start_epoch, end_epoch) ค่า epoch timestamp ในหน่วย milliseconds
-    """
     # สร้าง timezone ไทย
     thailand_tz = pytz.timezone('Asia/Bangkok')
 
@@ -189,4 +222,10 @@ def get_epoch(start_date=None, end_date=None):
     return start_epoch, end_epoch
 
 
-__all__ = ["fetch", "fetch_store"]
+__all__ = [
+    "fetch",
+    "uploadFile",
+    "fetch_store",
+    "search_duplicate",
+    "get_epoch",
+]

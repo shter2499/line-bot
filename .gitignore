@@ -5,6 +5,14 @@ __pycache__/
 venv/
 .env
 tmp_uploads/
+results-edc-binary/
+build/
+classifier-cr/
+classifier-edc/
+data.csv
+cr_data.csv
+train_classifier.py
+
 # MacOS
 .DS_Store
 

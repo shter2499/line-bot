@@ -1,0 +1,13 @@
+Flask>=3.0.3
+line-bot-sdk>=3.11.0
+python-dotenv>=1.0.1
+requests>=2.32
+redis>=5.0.1
+mysql-connector-python>=8.3.0
+pytz>=2024.1
+ollama>=0.3.0
+numpy>=2.1
+torch>=2.9.1
+transformers>=4.46
+safetensors>=0.4.3
+gunicorn>=21.0.2

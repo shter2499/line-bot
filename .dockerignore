@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Envs
+.env
+.venv/
+venv/
+ENV/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# VSCode and OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local data
+/tmp/
+/tmp_uploads/*
