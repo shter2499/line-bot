@@ -251,6 +251,7 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     if reply_token:
         state["reply_token"] = reply_token
 
+    print(f"[state before] {state["step"]}")
     msg = (text or "").strip()
     lower = msg.lower()
 
@@ -262,9 +263,26 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     state["context_confirm"] = True
     _save_state(user_id, state)
 
-    res = send_message(lower, state)
-    # res = process_message(lower, state)
-    if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
+    res = ''
+    
+    if predic.get("prediction") == "edc" and state.get("step") == 0:
+        state["step"] = 1
+        _save_state(user_id, state)
+        res = send_message(lower, state)
+        print("=" * 50)
+        print(f"[INFO] AI Response: {res}")
+        print("=" * 50)
+        if reply_token and _reply_cb:
+            _reply_cb(reply_token, res)
+        state["step"] = 0
+        _save_state(user_id, state)
+        return None
+
+    # res = send_message(lower, state)
+    # print(f"[INFO] AI Response: {res}")
+
+    # if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
+    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
         print("[INFO] Proceeding to summary...")
         _summary(state, res)
     elif res == "ไม่เกี่ยวกับ EDC":
@@ -325,6 +343,5 @@ def parse_header(text: str):
     elif ("ใช่" in edc_slip):
         edc_slip = "ออก"
     return f"EDC {edc_freeze}, Slip EDC {edc_slip}"
-
 
 __all__ = ["process_step_message", "process_image_message", "set_reply_callback"]
