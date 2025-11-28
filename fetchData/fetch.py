@@ -114,8 +114,8 @@ def search_duplicate(storeID: str):
         # เรียกใช้ฟังก์ชั่นเพื่อหาค่า epoch
         start_date = datetime.date.today().strftime('%Y-%m-%d')
         start_epoch, end_epoch = get_epoch(start_date)
-        dup_url = "http://192.168.1.12:443/api/v3/requests"
-        dup_token = "9F24A1C1-98A9-4C48-AEA3-7666D5DBC02B"
+        dup_url = ""
+        dup_token = ""
 
         # แสดงข้อมูลวันที่ที่จะค้นหา
         thailand_tz = pytz.timezone('Asia/Bangkok')

@@ -241,27 +241,17 @@ def _summary(state: Dict, txt) -> str:
                 "name": "Dairy Queen - Standard A"  # ใส่แบบนี้ไปก่อนเพราะยังแยกไม่ได้
             },
             "udf_fields": {
-                "udf_sline_2107": phone,
-                "udf_sline_2105": user,
-                "udf_pick_2101": {
-                    "name": "Dairy Queen",
-                    "id": "1815"
-                },
-                "udf_pick_2113": {
-                    "name": "test",
-                    "id": "2023"
-                },
-                "udf_pick_2102": {
-                    "name": "E-wallet ตัดเงินลูกค้าแล้วแต่ปิดบิลไม่ได้ (กรณีนี้ที่ตัดเงินลูกค้าแล้ว และ Error Timeout )",
-                    "id": "1863"
-                },
-                "udf_pick_2114": {
-                    "name": "test sub category",
-                    "id": "2024"
-                },
-                "udf_pick_2103": {
-                    "name": "LINE",
-                    "id": "1878"
+                "udf_sline_902": phone,
+                "udf_sline_62": "สาขา",
+                "udf_pick_1801": company,
+                "udf_pick_8705": "EDC",
+                "udf_pick_9601": "BBL",
+                "udf_sline_611": "N/A",
+                "udf_sline_1507": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
+                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else txt.split('ส่วนที่หนึ่ง:')[1].split(',')[0]}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
+                "udf_date_68": {
+                    "display_value": "2025/11/28 07:35",
+                    "value": "1764229800000"
                 },
                 "udf_pick_2115": {
                     "name": "Service Desk",
