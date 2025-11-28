@@ -71,7 +71,7 @@ def uploadFile(img):
         return {"ok": False, "status": response.status_code, "error": response.text}
 
 
-def fetch_store(storeID: str, host: str = "localhost", port: int = 3306, user: str = "root", password: str = "ranma2499", database: str = "store_name"):
+def fetch_store(storeID: str, host: str = "localhost", port: int = 3306, user: str = "root", password: str = "", database: str = "store_name"):
     db_config = {
         "host": os.getenv("MYSQL_HOST", host),
         "port": int(os.getenv("MYSQL_PORT", port)),
@@ -164,6 +164,9 @@ def search_duplicate(storeID: str):
         request = requests.get(url, headers=headers,
                                params=params, verify=dup_verify_ssl)
         res = request.json()
+        print("=" * 50)
+        print(f"[REQUEST] {res}")
+        print("=" * 50)
         return res
     except RequestException as exc:
         print(" ⚠️ " * 20)

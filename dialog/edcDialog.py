@@ -199,13 +199,7 @@ def _summary(state: Dict, txt) -> str:
     standard = result["standard"] if result else None
     company = result["company_name"] if result else None
     header = parse_header(txt.split("ส่วนที่สอง:")[1].split('\n')[0])
-    # dup = search_duplicate(branch)
 
-    # if dup["response_status"][0]["status_code"] == 2000 and dup['list_info']['total_count'] > 0:
-    #     _reply_cb(state.get("reply_token", ""),
-    #               f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup['requests'][0]['id']}")
-    #     _clear(user_id)
-    #     return
     try:
         detail = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[1]
         user = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[2]
@@ -246,62 +240,41 @@ def _summary(state: Dict, txt) -> str:
                 "id": "302",
                 "name": "Dairy Queen - Standard A"  # ใส่แบบนี้ไปก่อนเพราะยังแยกไม่ได้
             },
-            "item": {
-                "id": "4501",
-                "name": "EDC – Payment - ITMX"
-            },
-            "priority": {
-                "id": "901",
-                "name": "Severity 5"
-            },
-            "mode": {
-                "id": "4",
-                "name": "Chat"
-            },
-            "status": {
-                "id": "2",
-                "name": "Open",
-                "color": "#0066ff"
-            },
-            "group": {
-                "id": "463",
-                "name": "Service Desk",
-                "site": {
-                        "id": 302
-                }
-            },
-            "category": {
-                "id": "603",
-                "name": "SOFTWARE"
-            },
-            "subcategory": {
-                "id": "3310",
-                "name": "EDC Payment"
-            },
-            "technician": {
-                "id": "5402",
-                "email_id": "Helpdesk@p5-management.com",
-                "name": "Service Desk",
-                "phone": None,
-                "mobile": None
-            },
             "udf_fields": {
-                "udf_sline_902": phone,
-                "udf_sline_62": "สาขา",
-                "udf_pick_1801": company,
-                "udf_pick_8705": "EDC",
-                "udf_pick_9601": "BBL",
-                "udf_sline_611": "N/A",
-                "udf_sline_1507": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else txt.split('ส่วนที่หนึ่ง:')[1].split(',')[0]}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
-                "udf_date_68": {
-                    "display_value": "2025/11/28 07:35",
-                    "value": "1764229800000"
+                "udf_sline_2107": phone,
+                "udf_sline_2105": user,
+                "udf_pick_2101": {
+                    "name": "Dairy Queen",
+                    "id": "1815"
                 },
-                "udf_pick_64": "กฤตภาส ศิริโสภณพิพัฒน์",
-                "udf_pick_612": "NO",
-                "udf_pick_4802": "P5",
-                "udf_pick_9302": "Software"
+                "udf_pick_2113": {
+                    "name": "test",
+                    "id": "2023"
+                },
+                "udf_pick_2102": {
+                    "name": "E-wallet ตัดเงินลูกค้าแล้วแต่ปิดบิลไม่ได้ (กรณีนี้ที่ตัดเงินลูกค้าแล้ว และ Error Timeout )",
+                    "id": "1863"
+                },
+                "udf_pick_2114": {
+                    "name": "test sub category",
+                    "id": "2024"
+                },
+                "udf_pick_2103": {
+                    "name": "LINE",
+                    "id": "1878"
+                },
+                "udf_pick_2115": {
+                    "name": "Service Desk",
+                    "id": "2082"
+                },
+                "udf_pick_2116": {
+                    "name": "test Items",
+                    "id": "2032"
+                },
+                "udf_pick_2117": {
+                    "name": "Watcharit Chomklin",
+                    "id": "2033"
+                }
             },
             "attachments": attachment_list
         }
