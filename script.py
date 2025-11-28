@@ -131,7 +131,7 @@ def handle_image(event):
         print(f"[ERROR] image download failed: {e}")
         try:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(
-                text="ไม่สามารถดาวน์โหลดรูปได้ค่ะ ลองใหม่อีกครั้ง"))
+                text=" "))
         except Exception as ee:
             print(f"[ERROR] reply fail after download error: {ee}")
         return

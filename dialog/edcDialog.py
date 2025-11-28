@@ -4,6 +4,8 @@ State management now uses Redis via session.RedisSession instead of in-memory di
 - Timers are managed in-process per instance (stored outside Redis) as they are not JSON-serializable.
 """
 from __future__ import annotations
+
+from sympy import false
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
 from dialog.aiDialog import send_message, process_message
 from session import RedisSession
@@ -12,6 +14,7 @@ import os
 import re
 import time
 import threading
+import json
 from typing import Dict, Optional, Callable
 
 
@@ -130,15 +133,21 @@ def _summary(state: Dict, txt) -> str:
     image_paths = state.get('image_paths', [])
     user_id = state.get("uid")
     state = _load_state(user_id)
-    branch = find_branch(txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0])
+    result = find_branch(txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0])
+    branch = result["site_name"] if result else None
+    standard = result["standard"] if result else None
+    company = result["company_name"] if result else None
+    print("=" * 50)
+    print(f"[BRANCH FOUND] {branch}, {standard}, {company}")
+    print("=" * 50)
     header = parse_header(txt.split("ส่วนที่สอง:")[1].split('\n')[0])
-    dup = search_duplicate(branch)
+    # dup = search_duplicate(branch)
 
-    if dup["response_status"][0]["status_code"] == 2000 and dup['list_info']['total_count'] > 0:
-        _reply_cb(state.get("reply_token", ""),
-                  f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup['requests'][0]['id']}")
-        _clear(user_id)
-        return
+    # if dup["response_status"][0]["status_code"] == 2000 and dup['list_info']['total_count'] > 0:
+    #     _reply_cb(state.get("reply_token", ""),
+    #               f"สาขาได้แจ้งงานมาแล้วครับ Ticket {dup['requests'][0]['id']}")
+    #     _clear(user_id)
+    #     return
     try:
         detail = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[1]
         user = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[2]
@@ -150,6 +159,7 @@ def _summary(state: Dict, txt) -> str:
         return "ระบบมีปัญหา กรุณารอสักครู่ครับ"
 
     # อัปโหลดรูปทุกรูปและเก็บ attachment IDs
+    print("[INFO] Uploading attachments...")
     attachment_list = []
     for img_path in image_paths:
         if img_path and os.path.isfile(img_path):
@@ -161,63 +171,144 @@ def _summary(state: Dict, txt) -> str:
             except Exception as e:
                 print(f"[WARN] upload failed for {img_path}: {e}")
     cr_test = predict_cr_classifier.classify(detail)
-    
+
+    # payload = {
+    #     "request": {
+    #         # "subject": f"POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})",
+    #         "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
+    #         "description": f'ชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(",")[0]}<br />ปัญหาที่พบ: {detail}<br />ชื่อ: {user}<br />เบอร์โทรติดต่อ: {phone}',
+    #         "requester": {
+    #             "name": branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]
+    #         },
+    #         "template": {
+    #             "name": "New Aloha System for Minor (DQ-BT-BS-CF) TEST",
+    #             "id": "1501"
+    #         },
+    #         "site": {
+    #             "name": standard,
+    #             # "id": "602"
+    #         },
+    #         "udf_fields": {
+    #             "udf_sline_2107": phone,
+    #             "udf_sline_2105": user,
+    #             "udf_pick_2101": {
+    #                 "name": company,
+    #                 # "id": "1815"
+    #             },
+    #             "udf_pick_2113": {
+    #                 "name": "test",
+    #                 "id": "2023"
+    #             },
+    #             "udf_pick_2102": {
+    #                 "name": "E-wallet ตัดเงินลูกค้าแล้วแต่ปิดบิลไม่ได้ (กรณีนี้ที่ตัดเงินลูกค้าแล้ว และ Error Timeout )",
+    #                 "id": "1863"
+    #             },
+    #             "udf_pick_2114": {
+    #                 "name": "test sub category",
+    #                 "id": "2024"
+    #             },
+    #             "udf_pick_2103": {
+    #                 "name": "LINE",
+    #                 "id": "1878"
+    #             },
+    #             "udf_pick_2115": {
+    #                 "name": "Service Desk",
+    #                 "id": "2082"
+    #             },
+    #             "udf_pick_2116": {
+    #                 "name": "test Items",
+    #                 "id": "2032"
+    #             },
+    #             "udf_pick_2117": {
+    #                 "name": "Watcharit Chomklin",
+    #                 "id": "2033"
+    #             }
+    #         },
+    #         "attachments": attachment_list
+    #     }
+    # }
     payload = {
         "request": {
-            # "subject": f"POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})",
             "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-            "description": f'ชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(",")[0]}<br />ปัญหาที่พบ: {detail}<br />ชื่อ: {user}<br />เบอร์โทรติดต่อ: {phone}',
+            "description": f"ชื่อผู้แจ้ง  : {user}<br />เบอร์ติดต่อ : {phone}<br />สถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else txt.split('ส่วนที่หนึ่ง:')[1].split(',')[0]}<br />ปัญหาที่พบ/คำร้องขอ : {detail}<br />SN : N/A<br />Model : Not Specified",
             "requester": {
                 "name": branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]
             },
             "template": {
-                "name": "New Aloha System for Minor (DQ-BT-BS-CF) TEST",
-                "id": "1501"
+                "id": "5101",
+                "name": "New Aloha System for Minor (DQ-BT-BS-CF)",
+                "is_service_template": 'false'
             },
             "site": {
-                "name": "Dairy Queen - Standard A",
-                "id": "602"
+                "id": "302",
+                "name": "Dairy Queen - Standard A"  # ใส่แบบนี้ไปก่อนเพราะยังแยกไม่ได้
+            },
+            "item": {
+                "id": "4501",
+                "name": "EDC – Payment - ITMX"
+            },
+            "priority": {
+                "id": "901",
+                "name": "Severity 5"
+            },
+            "mode": {
+                "id": "4",
+                "name": "Chat"
+            },
+            "status": {
+                "id": "2",
+                "name": "Open",
+                "color": "#0066ff"
+            },
+            "group": {
+                "id": "463",
+                "name": "Service Desk",
+                "site": {
+                        "id": 302
+                }
+            },
+            "category": {
+                "id": "603",
+                "name": "SOFTWARE"
+            },
+            "subcategory": {
+                "id": "3310",
+                "name": "EDC Payment"
+            },
+            "technician": {
+                "id": "5402",
+                "email_id": "Helpdesk@p5-management.com",
+                "name": "Service Desk",
+                "phone": None,
+                "mobile": None
             },
             "udf_fields": {
-                "udf_sline_2107": "0812345678",
-                "udf_sline_2105": "watcharit",
-                "udf_pick_2101": {
-                    "name": "Dairy Queen",
-                    "id": "1815"
+                "udf_sline_902": phone,
+                "udf_sline_62": "สาขา",
+                "udf_pick_1801": company,
+                "udf_pick_8705": "EDC",
+                "udf_pick_9601": "BBL",
+                "udf_sline_611": "N/A",
+                "udf_sline_1507": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
+                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else txt.split('ส่วนที่หนึ่ง:')[1].split(',')[0]}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
+                "udf_date_68": {
+                    "display_value": "2025/11/28 07:35",
+                    "value": "1764229800000"
                 },
-                "udf_pick_2113": {
-                    "name": "test",
-                    "id": "2023"
-                },
-                "udf_pick_2102": {
-                    "name": "E-wallet ตัดเงินลูกค้าแล้วแต่ปิดบิลไม่ได้ (กรณีนี้ที่ตัดเงินลูกค้าแล้ว และ Error Timeout )",
-                    "id": "1863"
-                },
-                "udf_pick_2114": {
-                    "name": "test sub category",
-                    "id": "2024"
-                },
-                "udf_pick_2103": {
-                    "name": "LINE",
-                    "id": "1878"
-                },
-                "udf_pick_2115": {
-                    "name": "Service Desk",
-                    "id": "2082"
-                },
-                "udf_pick_2116": {
-                    "name": "test Items",
-                    "id": "2032"
-                },
-                "udf_pick_2117": {
-                    "name": "Watcharit Chomklin",
-                    "id": "2033"
-                }
+                "udf_pick_64": "กฤตภาส ศิริโสภณพิพัฒน์",
+                "udf_pick_612": "NO",
+                "udf_pick_4802": "P5",
+                "udf_pick_9302": "Software"
             },
             "attachments": attachment_list
         }
     }
 
+    print("=" * 50)
+    print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
+    print("=" * 50)
+
+    print("[INFO] Sending ticket creation request...")
     resp = fetch(payload)
 
     if resp.get("ok"):
@@ -234,6 +325,8 @@ def _summary(state: Dict, txt) -> str:
             _clear(user_id)
         except Exception as e:
             ticket_id = "-"
+            _reply_cb(state.get("reply_token", ""),
+                      "ตอนนี้ระบบมีปัญหาอยู่ รอสักครู่นะครับ")
             return f"[ERROR]: {e}"
     return "ตอนนี้ระบบบันทึกข้อมูลไม่ได้ กรุณารอสักครู่ครับ"
 
@@ -245,7 +338,7 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     print("=" * 50)
     print(f"[PREDICTION] {predic}")
     print("=" * 50)
-    
+
     if not state:
         state = _start(user_id)
     if reply_token:
@@ -264,7 +357,7 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     _save_state(user_id, state)
 
     res = ''
-    
+
     if predic.get("prediction") == "edc" and state.get("step") == 0:
         state["step"] = 1
         _save_state(user_id, state)
@@ -321,7 +414,7 @@ def find_branch(storeID: str):
         if matched:
             ID = matched.group(0)
             result = fetch_store(ID)
-            return result[0]["site_name"]
+            return result[0]
 
     except Exception as e:
         print(" ⚠️ " * 20)
@@ -344,4 +437,6 @@ def parse_header(text: str):
         edc_slip = "ออก"
     return f"EDC {edc_freeze}, Slip EDC {edc_slip}"
 
-__all__ = ["process_step_message", "process_image_message", "set_reply_callback"]
+
+__all__ = ["process_step_message",
+           "process_image_message", "set_reply_callback"]

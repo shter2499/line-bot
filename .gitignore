@@ -12,7 +12,8 @@ classifier-edc/
 data.csv
 cr_data.csv
 train_classifier.py
-test_process_step.py
+test.json
+test2.json
 
 # MacOS
 .DS_Store

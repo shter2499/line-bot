@@ -22,24 +22,15 @@ def _strtobool(val: str | None, default: bool = False) -> bool:
     return str(val).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-REQUESTS_API_URL = os.getenv(
-    "REQUESTS_API_URL", "https://192.168.3.107:8080/api/v3/requests/")
-REQUESTS_API_TOKEN = os.getenv(
-    # EXPIRED 7/11/2025 (dmy)
-<<<<<<< HEAD
-    "REQUESTS_API_TOKEN", "C3504DA6-5453-4CC5-B7FF-F81D915C2588")
-=======
-    "REQUESTS_API_TOKEN", "12FB66B4-EB5D-4B34-B7CC-7A128AE829DD")
->>>>>>> 0e14b7f (ปรับให้บอทไม่ตอบถ้าไม่เกี่ยวข้อง)
-REQUESTS_UPLOAD_URL = os.getenv(
-    "REQUESTS_UPLOAD_URL", "https://192.168.3.107:8080/api/v3/requests/upload")
-REQUESTS_VERIFY_SSL = _strtobool(
-    os.getenv("REQUESTS_VERIFY_SSL"), default=False)
+REQUESTS_API_URL = os.getenv("REQUESTS_API_URL")
+REQUESTS_API_TOKEN = os.getenv("REQUESTS_API_TOKEN")
+REQUESTS_UPLOAD_URL = os.getenv("REQUESTS_UPLOAD_URL")
+REQUESTS_VERIFY_SSL = _strtobool(os.getenv("REQUESTS_VERIFY_SSL"), default=False)
 
 DEFAULT_HEADERS = {"authtoken": REQUESTS_API_TOKEN}
 
-
 def fetch(data: list[str]) -> Dict[str, Any]:
+    print("[INFO] Sending data to Requests API...")
     inp_data = {"input_data": f"{data}"}
 
     try:
@@ -72,7 +63,8 @@ def uploadFile(img):
 
     response = requests.post(url, headers=headers,
                              files=files, verify=REQUESTS_VERIFY_SSL)
-
+    print(f"[INFO] Received response with status code {response.status_code}")
+    print(f"[INFO] Received response {response.text}")
     if response.status_code == 201:
         return json.loads(response.text)
     else:
@@ -96,7 +88,7 @@ def fetch_store(storeID: str, host: str = "localhost", port: int = 3306, user: s
         mydb = mysql.connector.connect(**db_config)
         cursor = mydb.cursor(dictionary=True)
         cursor.execute(
-            f""" select site_name, standard from stores where site_name like '%{storeID}%' """)
+            f""" select site_name, standard, company_name from stores where site_name like '%{storeID}%' """)
         result = cursor.fetchall()
         return result
 
