@@ -37,7 +37,7 @@ def _get_redis() -> RedisSession:
     return _redis
 
 
-def _default_state(uid: str) -> Dict:
+def _default_state(uid: str, reply_token: str) -> Dict:
     return {
         "step": 0,
         "answers": [],
@@ -49,13 +49,7 @@ def _default_state(uid: str) -> Dict:
         "context_confirm": False,
         "img_confirm": False,
         "edc_confirm": False,
-        "data": {
-            "part1": False,
-            "text1": "",
-            "part2": False,
-            "text2": "",
-            "part3": False,
-        }
+        "reply_token": reply_token
     }
 
 
@@ -123,8 +117,8 @@ def set_reply_callback(cb: Callable[[str, str], None]) -> None:
     _reply_cb = cb
 
 
-def _start(uid: str):
-    st = _default_state(uid)
+def _start(uid: str,reply_token: str):
+    st = _default_state(uid,reply_token)
     _save_state(uid, st)
     return st
 
@@ -408,7 +402,7 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     print("=" * 50)
 
     if not state:
-        state = _start(user_id)
+        state = _start(user_id,reply_token)
     if reply_token:
         state["reply_token"] = reply_token
 
