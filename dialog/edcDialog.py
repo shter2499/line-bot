@@ -33,6 +33,32 @@ def _get_redis() -> RedisSession:
     return _redis
 
 
+def _acquire_processing_lock(user_id: str, timeout_sec: int = 30) -> bool:
+    """
+    พยายามล็อค user_id ใน Redis เพื่อป้องกันการประมวลผลซ้ำ
+    Returns True ถ้าล็อคสำเร็จ, False ถ้ามีคนล็อคอยู่แล้ว
+    """
+    try:
+        redis_client = _get_redis().redis_client
+        lock_key = f"lock:processing:{user_id}"
+        # SET NX EX = ตั้งค่าได้ก็ต่อเมื่อยังไม่มี key นี้ + หมดอายุ timeout_sec วินาที
+        acquired = redis_client.set(lock_key, "1", nx=True, ex=timeout_sec)
+        return acquired is not None
+    except Exception as e:
+        print(f"[WARN] Failed to acquire lock: {e}")
+        return True  # fail-open: ถ้า Redis error ให้ผ่าน
+
+
+def _release_processing_lock(user_id: str) -> None:
+    """ปลดล็อค user_id หลังประมวลผลเสร็จ"""
+    try:
+        redis_client = _get_redis().redis_client
+        lock_key = f"lock:processing:{user_id}"
+        redis_client.delete(lock_key)
+    except Exception as e:
+        print(f"[WARN] Failed to release lock: {e}")
+
+
 def _default_state(uid: str) -> Dict:
     return {
         "step": 0,
@@ -172,61 +198,6 @@ def _summary(state: Dict, txt) -> str:
                 print(f"[WARN] upload failed for {img_path}: {e}")
     cr_test = predict_cr_classifier.classify(detail)
 
-    # payload = {
-    #     "request": {
-    #         # "subject": f"POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})",
-    #         "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-    #         "description": f'ชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(",")[0]}<br />ปัญหาที่พบ: {detail}<br />ชื่อ: {user}<br />เบอร์โทรติดต่อ: {phone}',
-    #         "requester": {
-    #             "name": branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]
-    #         },
-    #         "template": {
-    #             "name": "New Aloha System for Minor (DQ-BT-BS-CF) TEST",
-    #             "id": "1501"
-    #         },
-    #         "site": {
-    #             "name": standard,
-    #             # "id": "602"
-    #         },
-    #         "udf_fields": {
-    #             "udf_sline_2107": phone,
-    #             "udf_sline_2105": user,
-    #             "udf_pick_2101": {
-    #                 "name": company,
-    #                 # "id": "1815"
-    #             },
-    #             "udf_pick_2113": {
-    #                 "name": "test",
-    #                 "id": "2023"
-    #             },
-    #             "udf_pick_2102": {
-    #                 "name": "E-wallet ตัดเงินลูกค้าแล้วแต่ปิดบิลไม่ได้ (กรณีนี้ที่ตัดเงินลูกค้าแล้ว และ Error Timeout )",
-    #                 "id": "1863"
-    #             },
-    #             "udf_pick_2114": {
-    #                 "name": "test sub category",
-    #                 "id": "2024"
-    #             },
-    #             "udf_pick_2103": {
-    #                 "name": "LINE",
-    #                 "id": "1878"
-    #             },
-    #             "udf_pick_2115": {
-    #                 "name": "Service Desk",
-    #                 "id": "2082"
-    #             },
-    #             "udf_pick_2116": {
-    #                 "name": "test Items",
-    #                 "id": "2032"
-    #             },
-    #             "udf_pick_2117": {
-    #                 "name": "Watcharit Chomklin",
-    #                 "id": "2033"
-    #             }
-    #         },
-    #         "attachments": attachment_list
-    #     }
-    # }
     payload = {
         "request": {
             "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
@@ -332,57 +303,70 @@ def _summary(state: Dict, txt) -> str:
 
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
-    print("START PROCESS STEP MESSAGE")
-    state = _load_state(user_id)
-    predic = predict_classifier.classify(text)
-    print("=" * 50)
-    print(f"[PREDICTION] {predic}")
-    print("=" * 50)
+    # 🔒 ตรวจสอบและล็อคเพื่อป้องกันการประมวลผลซ้ำ
+    if not _acquire_processing_lock(user_id, timeout_sec=30):
+        print(f"[SKIP] User {user_id} is already being processed (Redis lock)")
+        return None
+    
+    try:
+        print("START PROCESS STEP MESSAGE")
+        state = _load_state(user_id)
+        predic = predict_classifier.classify(text)
+        print("=" * 50)
+        print(f"[PREDICTION] {predic}")
+        print("=" * 50)
 
-    if not state:
-        state = _start(user_id)
-    if reply_token:
-        state["reply_token"] = reply_token
+        if not state:
+            state = _start(user_id)
+        if reply_token:
+            state["reply_token"] = reply_token
 
-    print(f"[state before] {state["step"]}")
-    msg = (text or "").strip()
-    lower = msg.lower()
+        print(f"[state before] {state['step']}")
+        msg = (text or "").strip()
+        lower = msg.lower()
 
-    if lower == "ยกเลิก":
-        _clear(user_id)
-        return "ยกเลิกเซสชันแล้ว"
+        if lower == "ยกเลิก":
+            _clear(user_id)
+            return "ยกเลิกเซสชันแล้ว"
 
-    state["history"].append(lower)
-    state["context_confirm"] = True
-    _save_state(user_id, state)
-
-    res = ''
-
-    if predic.get("prediction") == "edc" and state.get("step") == 0:
-        state["step"] = 1
+        state["history"].append(lower)
+        state["context_confirm"] = True
         _save_state(user_id, state)
-        res = send_message(lower, state)
-        print("=" * 50)
-        print(f"[INFO] AI Response: {res}")
-        print("=" * 50)
+
+        res = ''
+
+        if predic.get("prediction") == "edc" and state.get("step") == 0:
+            state["step"] = 1
+            _save_state(user_id, state)
+            res = send_message(lower, state)
+            print("=" * 50)
+            print(f"[INFO] AI Response: {res}")
+            print("=" * 50)
+            if reply_token and _reply_cb:
+                _reply_cb(reply_token, res)
+            state["step"] = 0
+            _save_state(user_id, state)
+            return None
+
+        # res = send_message(lower, state)
+        # print(f"[INFO] AI Response: {res}")
+
+        # if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
+        if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
+            print("[INFO] Proceeding to summary...")
+            _summary(state, res)
+            return None
+
+        if predic.get("prediction") == "other":
+            if reply_token and _reply_cb:
+                _reply_cb(reply_token, "")
+            return None
+
         if reply_token and _reply_cb:
             _reply_cb(reply_token, res)
-        state["step"] = 0
-        _save_state(user_id, state)
         return None
-
-    # res = send_message(lower, state)
-    # print(f"[INFO] AI Response: {res}")
-
-    # if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
-    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
-        print("[INFO] Proceeding to summary...")
-        _summary(state, res)
-    elif res == "ไม่เกี่ยวกับ EDC":
-        _reply_cb(reply_token,"")
-    else:
-        _reply_cb(reply_token, res)
-    return None
+    finally:
+        _release_processing_lock(user_id)
 
 
 def process_image_message(user_id: str, image_path: str, reply_token: Optional[str] = None) -> Optional[str]:

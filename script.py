@@ -1,6 +1,7 @@
 import os
 import imghdr
 import time
+import threading
 
 from dotenv import load_dotenv
 from flask import Flask, request, abort, Response
@@ -49,11 +50,32 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 
 def _register_reply_callback():
+    # Token deduplication: เก็บ token ที่ใช้ไปแล้ว
+    _used_tokens = {}  # {token: timestamp}
+    _lock = threading.Lock()
+    
     def _reply(token: str, text: str):
+        # เช็คว่า token นี้ถูกใช้ไปแล้วหรือไม่
+        with _lock:
+            if token in _used_tokens:
+                print(f"[SKIP] Token {token[:8]}... already used")
+                return
+            _used_tokens[token] = time.time()
+            
+            # Cleanup old tokens (เก็บแค่ 100 ตัวล่าสุด)
+            if len(_used_tokens) > 100:
+                now = time.time()
+                expired = [t for t, ts in _used_tokens.items() if now - ts > 300]  # เก่ากว่า 5 นาที
+                for t in expired:
+                    del _used_tokens[t]
+        
         try:
             line_bot_api.reply_message(token, TextSendMessage(text=text))
+            print(f"[REPLY OK] token: {token[:8]}...")
         except Exception as e:
-            print("[EMPTY REPLY]")
+            print(f"[EMPTY INFO] token: {token[:8]}...")
+            print(f"[EMPTY REPLY] {e}")
+    
     try:
         set_reply_callback(_reply)
     except Exception as e:
