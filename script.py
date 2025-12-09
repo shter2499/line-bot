@@ -44,6 +44,21 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 def _register_reply_callback():
     def _reply(token: str, text: str):
+        # เช็คว่า token นี้ถูกใช้ไปแล้วหรือไม่
+        with _lock:
+            if token in _used_tokens:
+                print(f"[SKIP] Token {token[:8]}... already used")
+                return
+            _used_tokens[token] = time.time()
+            
+            # Cleanup old tokens (เก็บแค่ 100 ตัวล่าสุด)
+            if len(_used_tokens) > 100:
+                now = time.time()
+                expired = [t for t, ts in _used_tokens.items() if now - ts > 300]  # เก่ากว่า 5 นาที
+                for t in expired:
+                    del _used_tokens[t]
+        
+        print(f"[CHECK REPLY] token: {token[:8]}..., text: {text}")
         try:
             line_bot_api.reply_message(token, TextSendMessage(text=text))
         except Exception as e:

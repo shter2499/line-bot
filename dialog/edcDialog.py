@@ -5,7 +5,6 @@ State management now uses Redis via session.RedisSession instead of in-memory di
 """
 from __future__ import annotations
 
-from sympy import false
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
 from dialog.aiDialog import send_message, process_message, process_part
 import predict_classifier
@@ -303,13 +302,10 @@ def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
         # อยู่ระหว่าง flow อื่นอยู่ ให้ไม่ทำอะไรเพิ่มเติม
         return None
 
-    history = state.get("history", [])
-    history.append(lower)
-    state = _patch_state(user_id, {
-        "step": 1,
-        "history": history,
-        "context_confirm": True,
-    })
+        if not state:
+            state = _start(user_id, reply_token)
+        if reply_token:
+            state["reply_token"] = reply_token
 
     part = json.loads(process_message(lower, state))
     format_data = json.loads(process_part(lower, state))
@@ -405,6 +401,10 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
         state = _start(user_id,reply_token)
     if reply_token:
         state["reply_token"] = reply_token
+        if not state:
+            state = _start(user_id, reply_token)
+        if reply_token:
+            state["reply_token"] = reply_token
 
     msg = (text or "").strip()
     lower = msg.lower()
