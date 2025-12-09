@@ -8,6 +8,9 @@ from __future__ import annotations
 from sympy import false
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
 from dialog.aiDialog import send_message, process_message
+import predict_classifier
+import predict_cr_classifier
+import predict_image_edc
 from session import RedisSession
 
 import os
@@ -15,6 +18,7 @@ import re
 import time
 import threading
 import json
+from PIL import Image
 from typing import Dict, Optional, Callable
 
 
@@ -31,32 +35,6 @@ def _get_redis() -> RedisSession:
         # This respects REDIS_URL / REDIS_HOST / REDIS_PORT inside Docker
         _redis = RedisSession()
     return _redis
-
-
-def _acquire_processing_lock(user_id: str, timeout_sec: int = 30) -> bool:
-    """
-    พยายามล็อค user_id ใน Redis เพื่อป้องกันการประมวลผลซ้ำ
-    Returns True ถ้าล็อคสำเร็จ, False ถ้ามีคนล็อคอยู่แล้ว
-    """
-    try:
-        redis_client = _get_redis().redis_client
-        lock_key = f"lock:processing:{user_id}"
-        # SET NX EX = ตั้งค่าได้ก็ต่อเมื่อยังไม่มี key นี้ + หมดอายุ timeout_sec วินาที
-        acquired = redis_client.set(lock_key, "1", nx=True, ex=timeout_sec)
-        return acquired is not None
-    except Exception as e:
-        print(f"[WARN] Failed to acquire lock: {e}")
-        return True  # fail-open: ถ้า Redis error ให้ผ่าน
-
-
-def _release_processing_lock(user_id: str) -> None:
-    """ปลดล็อค user_id หลังประมวลผลเสร็จ"""
-    try:
-        redis_client = _get_redis().redis_client
-        lock_key = f"lock:processing:{user_id}"
-        redis_client.delete(lock_key)
-    except Exception as e:
-        print(f"[WARN] Failed to release lock: {e}")
 
 
 def _default_state(uid: str) -> Dict:
@@ -139,7 +117,8 @@ def _auto_reply(user_id: str):
     if state.get("context_confirm") and "ส่วนที่หนึ่ง:" in res:
         _summary(state, res)
     else:
-        _reply_cb(state.get("reply_token", ""), res)
+        # _reply_cb(state.get("reply_token", ""), res)
+        _reply_cb(state.get("reply_token", ""), "")
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
@@ -197,7 +176,7 @@ def _summary(state: Dict, txt) -> str:
             except Exception as e:
                 print(f"[WARN] upload failed for {img_path}: {e}")
     cr_test = predict_cr_classifier.classify(detail)
-
+    
     payload = {
         "request": {
             "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
@@ -275,12 +254,13 @@ def _summary(state: Dict, txt) -> str:
         }
     }
 
-    print("=" * 50)
-    print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
-    print("=" * 50)
+    # print("=" * 50)
+    # print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
+    # print("=" * 50)
 
     print("[INFO] Sending ticket creation request...")
-    resp = fetch(payload)
+    # resp = fetch(payload)
+    resp = {"ok": False}
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -302,75 +282,90 @@ def _summary(state: Dict, txt) -> str:
     return "ตอนนี้ระบบบันทึกข้อมูลไม่ได้ กรุณารอสักครู่ครับ"
 
 
+def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
+    """รับมือข้อความกรณี classifier ทำนายว่าเป็น EDC.
+
+    - อัปเดต step / history / context_confirm
+    - เรียก AI ผ่าน send_message
+    - ถ้าครบส่วนที่สองและสามแล้วจะเรียก _summary และคืนค่า None (เพราะสรุปเสร็จแล้ว)
+    - ถ้ายังไม่ครบจะคืนข้อความให้เอาไป reply กลับ
+    """
+
+    # ตอนนี้รองรับเฉพาะกรณีเริ่ม flow ใหม่ (step == 0)
+    if state.get("step") != 0:
+        # อยู่ระหว่าง flow อื่นอยู่ ให้ไม่ทำอะไรเพิ่มเติม
+        return None
+
+    state["step"] = 1
+    state["history"].append(lower)
+    state["context_confirm"] = True
+    _save_state(user_id, state)
+
+    res = send_message(lower, state)
+    print("=" * 50)
+    print(f"[INFO] AI Response: {res}")
+    print("=" * 50)
+
+    # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
+    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
+        print("[INFO] Proceeding to summary...")
+        _summary(state, res)
+        return None
+
+    # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
+    state["step"] = 0
+    _save_state(user_id, state)
+    return 
+    # return res
+
+
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
-    # 🔒 ตรวจสอบและล็อคเพื่อป้องกันการประมวลผลซ้ำ
-    if not _acquire_processing_lock(user_id, timeout_sec=30):
-        print(f"[SKIP] User {user_id} is already being processed (Redis lock)")
-        return None
-    
-    try:
-        print("START PROCESS STEP MESSAGE")
-        state = _load_state(user_id)
-        predic = predict_classifier.classify(text)
-        print("=" * 50)
-        print(f"[PREDICTION] {predic}")
-        print("=" * 50)
+    print("START PROCESS STEP MESSAGE")
+    state = _load_state(user_id)
+    predic = predict_classifier.classify(text)
+    print("=" * 50)
+    print(f"[PREDICTION] {predic}")
+    print("=" * 50)
 
-        if not state:
-            state = _start(user_id)
-        if reply_token:
-            state["reply_token"] = reply_token
+    if not state:
+        state = _start(user_id)
+    if reply_token:
+        state["reply_token"] = reply_token
 
-        print(f"[state before] {state['step']}")
-        msg = (text or "").strip()
-        lower = msg.lower()
+    print(f"[state before] {state['step']}")
+    msg = (text or "").strip()
+    lower = msg.lower()
 
-        if lower == "ยกเลิก":
-            _clear(user_id)
-            return "ยกเลิกเซสชันแล้ว"
+    # คำสั่งยกเลิก flow
+    if lower == "ยกเลิก":
+        _clear(user_id)
+        return "ยกเลิกเซสชันแล้ว"
 
-        state["history"].append(lower)
-        state["context_confirm"] = True
-        _save_state(user_id, state)
+    prediction = predic.get("prediction")
+    reply_text: Optional[str] = None
 
-        res = ''
+    if prediction == "edc":
+        # กรณีเป็น EDC ให้ไปจัดการในฟังก์ชันเฉพาะ
+        reply_text = _handle_edc_message(user_id, state, lower)
+    elif prediction == "other":
+        # ไม่ใช่ EDC ให้ตอบเป็นข้อความว่าง (หรือจะไม่ตอบเลยก็ได้)
+        reply_text = ""
 
-        if predic.get("prediction") == "edc" and state.get("step") == 0:
-            state["step"] = 1
-            _save_state(user_id, state)
-            res = send_message(lower, state)
-            print("=" * 50)
-            print(f"[INFO] AI Response: {res}")
-            print("=" * 50)
-            if reply_token and _reply_cb:
-                _reply_cb(reply_token, res)
-            state["step"] = 0
-            _save_state(user_id, state)
-            return None
+    # ส่งข้อความกลับ (ถ้ามี callback และกำหนด reply_text มา)
+    if reply_token and _reply_cb and reply_text is not None:
+        _reply_cb(reply_token, reply_text)
 
-        # res = send_message(lower, state)
-        # print(f"[INFO] AI Response: {res}")
-
-        # if state.get("context_confirm") and "ส่วนที่สอง:" in res and "ส่วนที่สาม:" in res:
-        if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
-            print("[INFO] Proceeding to summary...")
-            _summary(state, res)
-            return None
-
-        if predic.get("prediction") == "other":
-            if reply_token and _reply_cb:
-                _reply_cb(reply_token, "")
-            return None
-
-        if reply_token and _reply_cb:
-            _reply_cb(reply_token, res)
-        return None
-    finally:
-        _release_processing_lock(user_id)
+    return None
 
 
 def process_image_message(user_id: str, image_path: str, reply_token: Optional[str] = None) -> Optional[str]:
     state = _load_state(user_id)
+    predic_img = predict_image_edc.classify_image(image_path)
+    print("=" * 50)
+    print(f"[PREDICTION IMAGE] {predic_img}")
+    print("=" * 50)
+    if predic_img.get("prediction") == "not_edc":
+        return None
     if not state:
         print(f"[WARN] image from user without session: {user_id}")
         state = _start(user_id)
@@ -384,8 +379,8 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     if reply_token:
         state["reply_token"] = reply_token
 
-    _save_state(user_id, state)
-    _schedule_auto_submit(user_id, delay_sec=5.0)
+    # _save_state(user_id, state)
+    # _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
 
 

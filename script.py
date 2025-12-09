@@ -1,7 +1,6 @@
 import os
 import imghdr
 import time
-import threading
 
 from dotenv import load_dotenv
 from flask import Flask, request, abort, Response
@@ -23,16 +22,10 @@ def _mask_len(v: str | None) -> str:
     except Exception:
         return "<provided>"
 
-# Helpful diagnostics for new environments (won't print secret values)
-print("[BOOT] ENV diagnostics:")
-print(f"  LINE_CHANNEL_ACCESS_TOKEN: {_mask_len(os.environ.get('LINE_CHANNEL_ACCESS_TOKEN'))}")
-print(f"  LINE_CHANNEL_SECRET     : {_mask_len(os.environ.get('LINE_CHANNEL_SECRET'))}")
-print(f"  REDIS_URL               : {os.environ.get('REDIS_URL', '<unset>')}")
-print(f"  MYSQL_HOST              : {os.environ.get('MYSQL_HOST', '<unset>')}")
-print(f"  OLLAMA_HOST             : {os.environ.get('OLLAMA_HOST', '<unset>')}")
-
 CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
+print(f"[access token] {CHANNEL_ACCESS_TOKEN}")
+print(f"[channel secret] {CHANNEL_SECRET}")
 
 if not CHANNEL_ACCESS_TOKEN or CHANNEL_ACCESS_TOKEN.startswith("YOUR_"):
     raise RuntimeError(
@@ -50,32 +43,11 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 
 def _register_reply_callback():
-    # Token deduplication: เก็บ token ที่ใช้ไปแล้ว
-    _used_tokens = {}  # {token: timestamp}
-    _lock = threading.Lock()
-    
     def _reply(token: str, text: str):
-        # เช็คว่า token นี้ถูกใช้ไปแล้วหรือไม่
-        with _lock:
-            if token in _used_tokens:
-                print(f"[SKIP] Token {token[:8]}... already used")
-                return
-            _used_tokens[token] = time.time()
-            
-            # Cleanup old tokens (เก็บแค่ 100 ตัวล่าสุด)
-            if len(_used_tokens) > 100:
-                now = time.time()
-                expired = [t for t, ts in _used_tokens.items() if now - ts > 300]  # เก่ากว่า 5 นาที
-                for t in expired:
-                    del _used_tokens[t]
-        
         try:
             line_bot_api.reply_message(token, TextSendMessage(text=text))
-            print(f"[REPLY OK] token: {token[:8]}...")
         except Exception as e:
-            print(f"[EMPTY INFO] token: {token[:8]}...")
-            print(f"[EMPTY REPLY] {e}")
-    
+            print("[EMPTY REPLY]")
     try:
         set_reply_callback(_reply)
     except Exception as e:
@@ -153,7 +125,7 @@ def handle_image(event):
         print(f"[ERROR] image download failed: {e}")
         try:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(
-                text=" "))
+                text="ไม่สามารถดาวน์โหลดรูปได้ค่ะ ลองใหม่อีกครั้ง"))
         except Exception as ee:
             print(f"[ERROR] reply fail after download error: {ee}")
         return

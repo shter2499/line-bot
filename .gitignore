@@ -14,6 +14,8 @@ cr_data.csv
 train_classifier.py
 test.json
 test2.json
+image_data/
+classifier-image-edc/
 
 # MacOS
 .DS_Store
