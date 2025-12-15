@@ -64,6 +64,7 @@ class RedisSession:
             session_id (str): ID ของ session ที่ใช้เป็น key.
             data (Dict): ข้อมูลที่จะบันทึก.
         """
+        print(f"[Redis] Saving session {session_id}")
         key = f"session:{session_id}"
         json_data = json.dumps(data, ensure_ascii=False)
         self.redis_client.set(key, json_data, ex=self.ttl)
@@ -78,6 +79,7 @@ class RedisSession:
         Returns:
             Dict: ข้อมูล session หรือ None ถ้าไม่พบ.
         """
+        print(f"[Redis] Retrieving session {session_id}")
         key = f"session:{session_id}"
         data = self.redis_client.get(key)
         if data:

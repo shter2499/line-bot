@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from sympy import false
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
-from dialog.aiDialog import send_message, process_message
+from dialog.aiDialog import send_message, process_message, process_part
 import predict_classifier
 import predict_cr_classifier
 import predict_image_edc
@@ -48,7 +48,12 @@ def _default_state(uid: str) -> Dict:
         "history": [],
         "context_confirm": False,
         "img_confirm": False,
-        "edc_confirm": False
+        "edc_confirm": False,
+        "data": {
+            "part1": False,
+            "part2": False,
+            "part3": False,
+        }
     }
 
 
@@ -104,6 +109,8 @@ def _clear(uid: str):
 
 def _auto_reply(user_id: str):
     state = _load_state(user_id)
+    test = process_message(state.get("image_paths")[0], state)
+    state['data']['part3'] = True
     if not state:
         return
     if state.get("image_paths")[0] not in state["history"] and not state.get("context_confirm"):
@@ -117,8 +124,8 @@ def _auto_reply(user_id: str):
     if state.get("context_confirm") and "ส่วนที่หนึ่ง:" in res:
         _summary(state, res)
     else:
-        # _reply_cb(state.get("reply_token", ""), res)
-        _reply_cb(state.get("reply_token", ""), "")
+        _reply_cb(state.get("reply_token", ""), res)
+        # _reply_cb(state.get("reply_token", ""), "")
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
@@ -176,7 +183,7 @@ def _summary(state: Dict, txt) -> str:
             except Exception as e:
                 print(f"[WARN] upload failed for {img_path}: {e}")
     cr_test = predict_cr_classifier.classify(detail)
-    
+
     payload = {
         "request": {
             "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
@@ -283,12 +290,8 @@ def _summary(state: Dict, txt) -> str:
 
 
 def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
-    """รับมือข้อความกรณี classifier ทำนายว่าเป็น EDC.
-
-    - อัปเดต step / history / context_confirm
-    - เรียก AI ผ่าน send_message
-    - ถ้าครบส่วนที่สองและสามแล้วจะเรียก _summary และคืนค่า None (เพราะสรุปเสร็จแล้ว)
-    - ถ้ายังไม่ครบจะคืนข้อความให้เอาไป reply กลับ
+    """ตัว test จะมีไว้แยกว่าข้อความที่รับเข้ามาอยู่ใน part ไหนบ้าง หลังจากนั้นข้อมูลของ part นั้นจะถูกส่งต่อไปที่
+    send_message เพื่อให้ AI จัดเรียงข้อมูลใหม่ก่อนจะบันทึกลง state อีกครั้ง
     """
 
     # ตอนนี้รองรับเฉพาะกรณีเริ่ม flow ใหม่ (step == 0)
@@ -301,10 +304,25 @@ def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
     state["context_confirm"] = True
     _save_state(user_id, state)
 
-    res = send_message(lower, state)
+    part = json.loads(process_message(lower, state))
+    test = json.loads(process_part(lower, state))
     print("=" * 50)
-    print(f"[INFO] AI Response: {res}")
+    print(f"[PARTS] {part}")
     print("=" * 50)
+    res = ''
+    if part.get("part1"):
+        state["data"]["part1"] = True
+        # res = send_message(f"{lower}", state)
+        res = send_message(f"{test.get('part1')}", state)
+    elif part.get("part2"):
+        state["data"]["part2"] = True
+        # res = send_message(f"{lower}", state)
+        res = send_message(f"{test.get('part2')}", state)
+
+    # res = send_message(lower, state)
+    # print("=" * 50)
+    # print(f"[INFO] AI Response: {res}")
+    # print("=" * 50)
 
     # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
     if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
@@ -315,8 +333,8 @@ def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
     # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
     state["step"] = 0
     _save_state(user_id, state)
-    return 
-    # return res
+    # return
+    return res
 
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
@@ -332,7 +350,6 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     if reply_token:
         state["reply_token"] = reply_token
 
-    print(f"[state before] {state['step']}")
     msg = (text or "").strip()
     lower = msg.lower()
 
@@ -364,6 +381,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     print("=" * 50)
     print(f"[PREDICTION IMAGE] {predic_img}")
     print("=" * 50)
+
     if predic_img.get("prediction") == "not_edc":
         return None
     if not state:
@@ -379,8 +397,8 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     if reply_token:
         state["reply_token"] = reply_token
 
-    # _save_state(user_id, state)
-    # _schedule_auto_submit(user_id, delay_sec=5.0)
+    _save_state(user_id, state)
+    _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
 
 

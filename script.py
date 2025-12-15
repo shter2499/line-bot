@@ -99,7 +99,6 @@ def handle_message(event):
 
     reply_message = process_step_message(
         user_id, user_message, reply_token=event.reply_token)
-
     # Silent mode: only reply when we have something to say
     if reply_message is not None:
         try:

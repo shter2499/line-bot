@@ -1,40 +1,29 @@
 import ollama
 import time
 import os
+import json
 
 
 def send_message(message: str, state: dict[str, any]) -> str:
     try:
         print('[Send request to ai]')
         system_prompt = """ 
-You are a **"Flexible Data Collection Agent"** (AI Helper). Your **SOLE FUNCTION** is to collect the 3 required pieces of information for a trouble ticket, regardless of the order the user provides them. You MUST adhere to the rules below strictly.
+System:
+คุณคือผู้ช่วย "ขอข้อมูลในส่วนที่ขาด" เท่านั้น
+อ่านข้อความของผู้ใช้ 1 ข้อความ แล้วตอบเป็นข้อความที่ขาดหายไปที่ละส่วน ห้ามพูดอย่างอื่น
 
-### CORE RULES (PRIORITIZED)
+ตัวอย่าง:
+1) "รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ: \nเบอร์ติดต่อ:"
+    part1 ->  "รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ: \nเบอร์ติดต่อ:"
+2) "เครื่อง EDC ค้างหรือไม่\nAns:ไม่\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+    part2 ->  "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+3) img_confirm: False
+    part3 ->  "รบกวนขอรูปภาพด้วยครับ"
 
-1. **R1. NO General Conversation & Anti-Verbosity:** You MUST IGNORE any greetings or general inquiries and proceed ONLY with Rule 4's logic. **You MUST NOT generate any explanatory text, summary of status, or greetings.** Your output MUST be a single, direct request derived ONLY from the OUTPUT LOGIC TABLE.
-2. **R2. NON-SEQUENTIAL COLLECTION:** You must process and collect data for **Part 1, Part 2, and Part 3** in any order provided by the user. The system's response MUST ONLY ask for the **highest priority missing Part**.
-3. **R3. ASK FOR MISSING (Priority Order):** When multiple parts are missing, you MUST ask for them in this fixed priority: **Part 1 > Part 2 > Part 3**.
-4. **R4. FINAL CHECK & Anti-Skip:** You MUST NOT proceed with summarization until **ALL 3 PARTS** are confirmed complete. You must **NEVER** assume any part (especially Part 2) is complete if there is no explicit data for it in the history.
-
-### EDC PROBLEM SCOPE DEFINITION (MUST BE USED FOR R1)
-A message is **EDC-RELATED** if it mentions the machine itself, its integration with the POS system, OR any of these common failure symptoms: เครื่องค้าง / หน้าจอค้าง, รูดบัตรไม่ผ่าน, เครื่องรับบัตรมีปัญหา / EDC เสีย, เครื่องเปิดไม่ติด / แบตเตอรี่หมด, สลิปไม่ออก / Printer Error, Communication Error / Connection Failed, ปัญหาการสรุปยอด / Settlement, POS ไม่ส่งข้อมูลเข้า EDC, ยอดเงินบน POS ไม่ตรงกับ EDC.
-
-### REQUIRED DATA STRUCTURE (To Check History Against)
-* **Part 1 (Core Info):** Branch ID/Name, Problem Description, Name, Contact Number.
-* **Part 2 (Device Status):** Is the EDC machine frozen, Was the EDC restarted, Did the slip print.
-* **DEFINITION OF COMPLETION:** Part 2 is considered complete if the user provides **three** clear, short, definitive answers (e.g., 'ใช่', 'ไม่', 'ออก', 'ค้าง', 'ติด') in a single turn, regardless of the order or surrounding words (e.g., 'ค้าง ไม่ ไม่ออก' is COMPLETE).
-* **Part 3 (Image):** Image confirmation (when img_confirm = True).
-
-Important Note on Summarization: When completing the summary, you MUST ONLY extract the user-provided data values. You must AVOID including the data field names (e.g., 'รหัสสาขาและชื่อสาขา:', 'ปัญหาที่พบ:') in the summary output.
-
-### OUTPUT LOGIC AND THAI FORMAT (DO NOT add any extra text)
-
-**You MUST output the correct Thai response based on this logic Current Status (Based on History - Check Missing Parts) - Thai Response (Strict Format) ONLY:**
-
- **If EDC-RELATED AND Part 1 is Incomplete** (Highest Priority Missing) - **รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ: \nชื่อ: \nเบอร์ติดต่อ:  
- **Else If EDC-RELATED AND Part 2 is Incomplete** (Second Priority Missing) - เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns: 
- **Else If EDC-RELATED AND Part 3 is False** (Lowest Priority Missing) - รบกวนขอรูปภาพด้วยครับ 
- **Else If EDC-RELATED AND ALL 3 PARTS are Complete** - ส่วนที่หนึ่ง: [EXTRACT PART X VALUES, SEPARATED BY COMMA]\nส่วนที่สอง: [EXTRACT PART Y VALUES, SEPARATED BY COMMA]\nส่วนที่สาม: มีรูปภาพประกอบแล้ว 
+ตอบทีละ part ตามตัวอย่างนี้เท่านั้นโดยอิงจากข้อมูลที่ได้รับ:
+    ขาดข้อมูล part1 -> "รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ: \nเบอร์ติดต่อ:"
+    ขาดข้อมูล part2 -> "เครื่อง EDC ค้างหรือไม่\nAns:ไม่\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+    ขาดข้อมูล part3 -> "รบกวนขอรูปภาพด้วยครับ"
  """
 
         history = state.get('history') or []
@@ -57,38 +46,241 @@ Important Note on Summarization: When completing the summary, you MUST ONLY extr
         start = time.perf_counter()
 
         response = ollama.chat(
-                model="qwen2.5:14b",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role":"system",
-                        "content": context_msg
-                    },
-                    {
-                        "role": "user",
-                        "content": message
-                    },
-                ],
-                options={
-                    "temperature": 0.2, 
-                }
-            )
+            model="qwen2.5:14b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "system",
+                    "content": context_msg
+                },
+                {
+                    "role": "user",
+                    "content": message
+                },
+            ],
+            options={
+                "temperature": 0.2,
+            }
+        )
         # res = response.json()
 
         end = time.perf_counter()
         print("=" * 50)
         print(f"Request took {end - start:.2f} seconds")
         print(f"Response: {response.message.content}")
-        print(f"State {state}")
         print("=" * 50)
         return response.message.content
     except Exception as e:
         print(" ⚠️ " * 20)
         print(f"[ERROR]: {e}")
         print(" ⚠️ " * 20)
-        return 
+        return
+
+
+def send_message(message: str, state: dict[str, any]) -> str:
+    try:
+        print('[Send request to ai]')
+
+        data = state.get("data") or {}
+        current_state = {
+            "part1_done": data.get("part1"),
+            "part2_done": data.get("part2"),
+            "img_confirm": data.get("part3"),
+        }
+        print("=" * 50)
+        print(f"[send_message] current_state: {current_state}")
+        print("=" * 50)
+        context_msg = "CURRENT_STATE:\n" + json.dumps(current_state, ensure_ascii=False, indent=2)
+
+        system_prompt = f"""
+System:
+System:
+You are an EDC Case Data Collection Assistant (not a general chat bot).
+You MUST decide based ONLY on the CURRENT_STATE.
+
+CURRENT_STATE contains:
+- part1_done: {bool(state.get("part1_done"))}
+- part2_done: {bool(state.get("part2_done"))}
+- img_confirm: {bool(state.get("img_confirm"))}
+
+The rule is to respond by selecting the one item that is False. You MUST NOT respond with any text other than what is specified in rules 1-4:
+
+1) If part1_done is false, respond ONLY with this message (DO NOT ask for information again and DO NOT respond with anything else):
+    รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ: \nชื่อ: \nเบอร์ติดต่อ:
+
+2) If part2_done is false, respond ONLY with this message (DO NOT ask for information again and DO NOT respond with anything else):
+    เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:
+
+3) If img_confirm is false, respond ONLY with this message (DO NOT ask for information again and DO NOT respond with anything else):
+    รบกวนขอรูปภาพด้วยครับ
+
+4) If part1_done is true AND part2_done is true AND img_confirm is true:
+    Respond with a short message confirming that the data is complete, such as:
+    "ส่วนที่หนึ่ง: [EXTRACT PART 1 VALUES, SEPARATED BY COMMA]\nส่วนที่สอง: [EXTRACT PART 2 VALUES, SEPARATED BY COMMA]\nส่วนที่สาม: มีรูปภาพประกอบแล้ว"
+
+IMPORTANT NOTES:
+- DO NOT ask again for a completed part (e.g., if part2_done is true, DO NOT ask for Part 2 again).
+- DO NOT greet, chat, or explain the rules. Respond strictly according to rules 1-4 ONLY.
+"""
+
+
+        context_msg = "CURRENT_STATE:\n" + \
+            json.dumps(current_state, ensure_ascii=False, indent=2)
+
+        start = time.perf_counter()
+
+        response = ollama.chat(
+            model="qwen2.5:14b",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": context_msg},
+                {"role": "user", "content": message},
+            ],
+            options={"temperature": 0.2},
+        )
+
+        end = time.perf_counter()
+        print("=" * 50)
+        print(f"Request took {end - start:.2f} seconds")
+        print(f"Response: {response.message.content}")
+        print("=" * 50)
+        return response.message.content
+    except Exception as e:
+        print(" ⚠️ " * 20)
+        print(f"[ERROR]: {e}")
+        print(" ⚠️ " * 20)
+        return
+
+
+def process_message(message: str, state: dict[str, any]) -> str:
+    state_data = state.get('data') or []
+    try:
+        print('[process_message by AI]')
+        system_prompt = """
+System:
+คุณเป็นตัวช่วย "แยกประเภทข้อความ" เท่านั้น
+อ่านข้อความของผู้ใช้ 1 ข้อความ แล้วตอบเป็น JSON เท่านั้น ห้ามพูดอย่างอื่น
+
+ตัวอย่าง:
+1) "บิลไม่ตัดครับ"
+   -> {"part1": true, "part2": false, "part3": false}
+2) "รหัสสาขา 123 สาขาสีลม"
+   -> {"part1": true, "part2": false, "part3": false}
+3) "ชื่อเอ เบอร์ 0812345678"
+   -> {"part1": true, "part2": false, "part3": false}
+4) "ค้าง ไม่ ไม่"
+   -> {"part1": false, "part2": true, "part3": false}
+5) "ส่วนที่สอง: เครื่อง EDC ค้างหรือไม่
+Ans:ไม่ค้าง
+Restart เครื่อง EDC หรือไม่
+Ans:ไม่
+สลิปจากเครื่องออกหรือไม่
+Ans:ไม่
+"
+
+ใน JSON ให้มีช่องดังนี้:
+- "part1": true/false  (ข้อความนี้มีข้อมูลส่วนของ Part1 ไหม เช่น สาขา ปัญหาที่พบ ชื่อ เบอร์โทร)
+- "part2": true/false  (ข้อความนี้มีข้อมูลส่วนของ Part2 ไหม เช่น เครื่องค้าง รีสตาร์ท สลิปออกไหม)
+- "part3": true/false  (ข้อความนี้พูดถึงการส่งรูป / แนบรูปไหม)
+
+ตอบแค่ JSON ตามตัวอย่างนี้เท่านั้นโดยอิงจากข้อมูลที่ได้รับ:
+{"part1": false, "part2": false, "part3": false}
+"""
+
+        start = time.perf_counter()
+
+        response = ollama.chat(
+            model="qwen2.5:14b",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": f"state_data: {state_data}"},
+                {"role": "user", "content": message},
+            ],
+            options={
+                "temperature": 0.2,
+            }
+        )
+        # res = response.json()
+
+        end = time.perf_counter()
+        print("=" * 50)
+        print(f"Request took {end - start:.2f} seconds")
+        print(f"Response CLASSIFIER: {response.message.content}")
+        print("=" * 50)
+        return response.message.content
+    except Exception as e:
+        print(" ⚠️ " * 20)
+        print(f"[ERROR]: {e}")
+        print(" ⚠️ " * 20)
+        return
+
+
+def process_part(message: str, state: dict[str, any]) -> str:
+    state_data = state.get('data') or []
+    try:
+        print('[process_message by AI]')
+        system_prompt = """
+System:
+คุณเป็นตัวช่วย "เติมข้อความตาม part" เท่านั้น
+อ่านข้อความของผู้ใช้ 1 ข้อความ แล้วตอบเป็น JSON เท่านั้น ห้ามพูดอย่างอื่น
+
+ตัวอย่าง:
+1) "1234 บิลไม่ตัด เอ เบอร์ 0812345678"
+   -> {"part1": "**รบกวนขอข้อมูลตามนี้หน่อยครับ**\nรหัสสาขาและชื่อสาขา:1234 สาขาสีลม\nปัญหาที่พบ:บิลไม่ตัด\nชื่อ:เอ\nเบอร์ติดต่อ: 0812345678"}
+2) "เครื่องค้าง ใช่ รีสตาร์ท ไม่ สลิปออก ใช่" หรือ "ค้าง ไม่ ไม่"
+    -> {"part2": "เครื่อง EDC ค้างหรือไม่\nAns:ใช่\nRestart เครื่อง EDC หรือไม่\nAns:ไม่\nสลิปจากเครื่องออกหรือไม่\nAns:ใช่"}
+3) "บิลไม่ตัดครับ" (ต้องการข้อมูล part1 เพิ่มเติมเพราะมีแค่ปัญหาที่พบ)
+   -> {"part1": "**รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ: \nเบอร์ติดต่อ:"}
+4) "พพ ไม่ตัด 1234 เอ 0812345678"
+   -> {"part1": "**รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา:1234 \nปัญหาที่พบ:พพ ไม่ตัด \nชื่อ:เอ \nเบอร์ติดต่อ:0812345678"}
+5) "เครดิตไม่ตัด 1234 แชมป์ 0812345678"
+   -> {"part1": "**รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา:1234 \nปัญหาที่พบ:เครดิตไม่ตัด \nชื่อ:แชมป์ \nเบอร์ติดต่อ:0812345678"}
+
+ใน JSON ให้มีช่องดังนี้:
+- "part1": "**รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ: \nชื่อ: \nเบอร์ติดต่อ:"  (ข้อความนี้มีข้อมูลส่วนของ Part1 ไหม เช่น สาขา ปัญหาที่พบ ชื่อ เบอร์โทร)
+- "part2": "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"  (ข้อความนี้มีข้อมูลส่วนของ Part2 ไหม เช่น เครื่องค้าง รีสตาร์ท สลิปออกไหม)
+
+ตอบแค่ JSON ตามตัวอย่างนี้เท่านั้นโดยอิงจากข้อมูลที่ได้รับ:
+{"part1": "**รบกวนขอข้อมูลตามนี้หน่อยครับ**\\nรหัสสาขาและชื่อสาขา: 123\\nปัญหาที่พบ:ปัญหาบิลไม่ตัด\\nชื่อ:เอ\\nเบอร์ติดต่อ:0812345678", "part2": "เครื่อง EDC ค้างหรือไม่\\nAns:ค้าง\\nRestart เครื่อง EDC หรือไม่\\nAns:ไม่\\nสลิปจากเครื่องออกหรือไม่\\nAns:ไม่"}
+"""
+
+        start = time.perf_counter()
+
+        response = ollama.chat(
+            model="qwen2.5:14b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "system",
+                    "content": f"state_data: {state_data}"
+                },
+                {
+                    "role": "user",
+                    "content": message
+                },
+            ],
+            options={
+                "temperature": 0.2,
+            }
+        )
+        # res = response.json()
+
+        end = time.perf_counter()
+        print("=" * 50)
+        print(f"Request took {end - start:.2f} seconds")
+        print("=" * 50)
+        return response.message.content
+    except Exception as e:
+        print(" ⚠️ " * 20)
+        print(f"[ERROR]: {e}")
+        print(" ⚠️ " * 20)
+        return
+
 
 __all__ = ["send_message"]
