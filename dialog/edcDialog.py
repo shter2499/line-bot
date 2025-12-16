@@ -51,7 +51,9 @@ def _default_state(uid: str) -> Dict:
         "edc_confirm": False,
         "data": {
             "part1": False,
+            "text1": "",
             "part2": False,
+            "text2": "",
             "part3": False,
         }
     }
@@ -109,8 +111,8 @@ def _clear(uid: str):
 
 def _auto_reply(user_id: str):
     state = _load_state(user_id)
-    test = process_message(state.get("image_paths")[0], state)
     state['data']['part3'] = True
+    _save_state(user_id, state)
     if not state:
         return
     if state.get("image_paths")[0] not in state["history"] and not state.get("context_confirm"):
@@ -120,12 +122,21 @@ def _auto_reply(user_id: str):
                   "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
         return
 
-    res = send_message("ห้ามขอรูปซ้ำอีก", state)
-    if state.get("context_confirm") and "ส่วนที่หนึ่ง:" in res:
-        _summary(state, res)
+    # res = send_message("ห้ามขอรูปซ้ำอีก", state)
+    if state.get("img_confirm") and state["data"].get("part1") and state["data"].get("part2"):
+        data = f"ส่วนที่หนึ่ง: {state["data"].get("text1")}\nส่วนที่สอง: {state["data"].get("text2")}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+        _summary(state, data)
     else:
-        _reply_cb(state.get("reply_token", ""), res)
-        # _reply_cb(state.get("reply_token", ""), "")
+        if state["data"]["part1"] == False:
+            reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+            _reply_cb(state.get("reply_token", ""), reply)
+            return
+        
+        if state["data"]["part2"] == False:
+            reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+            _reply_cb(state.get("reply_token", ""), reply)
+            return
+        
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
@@ -142,6 +153,9 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
 
 
 def _summary(state: Dict, txt) -> str:
+    print("=" * 50)
+    print(f"[_summary] [txt] {txt}")
+    print("=" * 50)
     image_paths = state.get('image_paths', [])
     user_id = state.get("uid")
     state = _load_state(user_id)
@@ -149,9 +163,6 @@ def _summary(state: Dict, txt) -> str:
     branch = result["site_name"] if result else None
     standard = result["standard"] if result else None
     company = result["company_name"] if result else None
-    print("=" * 50)
-    print(f"[BRANCH FOUND] {branch}, {standard}, {company}")
-    print("=" * 50)
     header = parse_header(txt.split("ส่วนที่สอง:")[1].split('\n')[0])
     # dup = search_duplicate(branch)
 
@@ -266,8 +277,8 @@ def _summary(state: Dict, txt) -> str:
     # print("=" * 50)
 
     print("[INFO] Sending ticket creation request...")
-    # resp = fetch(payload)
-    resp = {"ok": False}
+    resp = fetch(payload)
+    # resp = {"ok": False}
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -305,24 +316,57 @@ def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
     _save_state(user_id, state)
 
     part = json.loads(process_message(lower, state))
-    test = json.loads(process_part(lower, state))
+    format_data = json.loads(process_part(lower, state))
     print("=" * 50)
-    print(f"[PARTS] {part}")
+    print(f"[handle edc message part] {part}")
+    print(f"[handle edc message test] {format_data}")
+    print(f"[state data] {state["data"]}")
     print("=" * 50)
     res = ''
     if part.get("part1"):
-        state["data"]["part1"] = True
-        # res = send_message(f"{lower}", state)
-        res = send_message(f"{test.get('part1')}", state)
-    elif part.get("part2"):
-        state["data"]["part2"] = True
-        # res = send_message(f"{lower}", state)
-        res = send_message(f"{test.get('part2')}", state)
+        branch = format_data.get("part1").split("รหัสสาขาและชื่อสาขา:")[1].split("\n")[0] 
+        issue = format_data.get("part1").split("ปัญหาที่พบ:")[1].split("\n")[0] 
+        name = format_data.get("part1").split("ชื่อ:")[1].split("\n")[0] 
+        phone = format_data.get("part1").split("เบอร์ติดต่อ:")[1] 
+        print(f"[CHECK PART1] branch:{ branch}, issue:{ issue}, name:{ name}, phone:{ phone}")
 
-    # res = send_message(lower, state)
-    # print("=" * 50)
-    # print(f"[INFO] AI Response: {res}")
-    # print("=" * 50)
+        if branch == '' or issue == '' or name == '' or phone == '':
+            return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+        else:
+            state["data"]["part1"] = True
+            state["data"]["text1"] = f"{branch}, {issue}, {name}, {phone}"
+
+        if state["data"]["part2"] == True and state["data"]["part3"] == True:
+            print("[INFO] Proceeding to summary...")
+            data = f"ส่วนที่หนึ่ง: {state["data"].get("text1")}\nส่วนที่สอง: {state["data"].get("text2")}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+            _summary(state, data)
+            return None
+        elif state["data"]["part2"] == False or state["data"]["part3"] == False:
+            res = send_message(f"{format_data.get('part1')}", state)
+
+    if part.get("part2"):
+        frezez = format_data.get("part2").split("Ans:")[1].split("\n")[0]
+        restart = format_data.get("part2").split("Ans:")[2].split("\n")[0]
+        slip = format_data.get("part2").split("Ans:")[3]
+        print(f"[CHECK PART2] frezez:{ frezez}, restart:{ restart}, slip:{ slip}")
+        if frezez == '' or restart == '' or slip == '':
+            return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+        else:
+            state["data"]["part2"] = True
+            state["data"]["text2"] = f"""{frezez}, {restart}, {slip}"""
+
+        if state["data"]["part1"] == True and state["data"]["part3"] == True:
+            print("[INFO] Proceeding to summary...")
+            data = f"ส่วนที่หนึ่ง: {state["data"].get("text1")}\nส่วนที่สอง: {state["data"].get("text2")}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+            _summary(state, data)
+            return None
+        elif state["data"]["part1"] == False or state["data"]["part3"] == False:
+            res = send_message(f"{format_data.get('part2')}", state)
+        # res = send_message(f"{format_data.get('part2')}", state)
+
+    print("=" * 50)
+    print(f"[INFO] AI Response: {res}")
+    print("=" * 50)
 
     # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
     if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):

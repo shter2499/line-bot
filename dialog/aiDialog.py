@@ -8,7 +8,7 @@ def send_message(message: str, state: dict[str, any]) -> str:
     try:
         print('[Send request to ai]')
         system_prompt = """ 
-System:
+System: 
 คุณคือผู้ช่วย "ขอข้อมูลในส่วนที่ขาด" เท่านั้น
 อ่านข้อความของผู้ใช้ 1 ข้อความ แล้วตอบเป็นข้อความที่ขาดหายไปที่ละส่วน ห้ามพูดอย่างอื่น
 
@@ -97,33 +97,34 @@ def send_message(message: str, state: dict[str, any]) -> str:
 
         system_prompt = f"""
 System:
-System:
-You are an EDC Case Data Collection Assistant (not a general chat bot).
-You MUST decide based ONLY on the CURRENT_STATE.
+คุณคือผู้ช่วยเก็บข้อมูลเคส EDC (ไม่ใช่แชทบอทคุยเล่น)
+คุณต้องตัดสินใจจาก CURRENT_STATE เท่านั้น
 
-CURRENT_STATE contains:
+CURRENT_STATE จะมี:
 - part1_done: {bool(state.get("part1_done"))}
 - part2_done: {bool(state.get("part2_done"))}
 - img_confirm: {bool(state.get("img_confirm"))}
 
-The rule is to respond by selecting the one item that is False. You MUST NOT respond with any text other than what is specified in rules 1-4:
+กติกาการตอบจะเลือกตอบทีละข้อที่เป็น False ห้ามตอบข้อความอย่างอื่นนอกจากข้อความที่ระบุไว้ในข้อ 1-4 เท่านั้น:
 
-1) If part1_done is false, respond ONLY with this message (DO NOT ask for information again and DO NOT respond with anything else):
-    รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ: \nชื่อ: \nเบอร์ติดต่อ:
+1) ถ้า part1_done เป็น false หรือข้อมูลที่ได้รับมาไม่ครบเช่น "**รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ: \nเบอร์ติดต่อ:" ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
+   -  รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:
 
-2) If part2_done is false, respond ONLY with this message (DO NOT ask for information again and DO NOT respond with anything else):
-    เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:
+2) ถ้า part1_done เป็น true หรือข้อมูลที่ได้รับมาครบถ้วนเช่น "**รบกวนขอข้อมูลตามนี้หน่อยครับ** \nรหัสสาขาและชื่อสาขา:1350 \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ:เอ \nเบอร์ติดต่อ:0812345678" ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
+   -  เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:
 
-3) If img_confirm is false, respond ONLY with this message (DO NOT ask for information again and DO NOT respond with anything else):
-    รบกวนขอรูปภาพด้วยครับ
+3) ถ้า part2_done เป็น false ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
+   -  เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:
 
-4) If part1_done is true AND part2_done is true AND img_confirm is true:
-    Respond with a short message confirming that the data is complete, such as:
-    "ส่วนที่หนึ่ง: [EXTRACT PART 1 VALUES, SEPARATED BY COMMA]\nส่วนที่สอง: [EXTRACT PART 2 VALUES, SEPARATED BY COMMA]\nส่วนที่สาม: มีรูปภาพประกอบแล้ว"
+4) ถ้า part1_done และ part2_done เป็น true ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
+   -  รบกวนขอรูปภาพด้วยครับ
 
-IMPORTANT NOTES:
-- DO NOT ask again for a completed part (e.g., if part2_done is true, DO NOT ask for Part 2 again).
-- DO NOT greet, chat, or explain the rules. Respond strictly according to rules 1-4 ONLY.
+5) ถ้า img_confirm เป็น false ให้ตอบด้วยข้อความนี้เท่านั้น (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
+   -  รบกวนขอรูปภาพด้วยครับ
+
+ข้อสำคัญ:
+- ห้ามถามซ้ำส่วนที่ทำเสร็จแล้ว (เช่น ถ้า part2_done เป็น true ห้ามถาม Part2 อีก)
+- ห้ามทักทาย พูดคุย หรืออธิบายกติกา ให้ตอบตามข้อ 1-5 เท่านั้น
 """
 
 
@@ -184,10 +185,9 @@ Ans:ไม่
 ใน JSON ให้มีช่องดังนี้:
 - "part1": true/false  (ข้อความนี้มีข้อมูลส่วนของ Part1 ไหม เช่น สาขา ปัญหาที่พบ ชื่อ เบอร์โทร)
 - "part2": true/false  (ข้อความนี้มีข้อมูลส่วนของ Part2 ไหม เช่น เครื่องค้าง รีสตาร์ท สลิปออกไหม)
-- "part3": true/false  (ข้อความนี้พูดถึงการส่งรูป / แนบรูปไหม)
 
 ตอบแค่ JSON ตามตัวอย่างนี้เท่านั้นโดยอิงจากข้อมูลที่ได้รับ:
-{"part1": false, "part2": false, "part3": false}
+{"part1": false, "part2": false}
 """
 
         start = time.perf_counter()
