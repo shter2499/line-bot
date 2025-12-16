@@ -155,16 +155,8 @@ def _auto_reply(user_id: str):
         data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
         _summary(state, data)
     else:
-        if state["data"]["part1"] == False:
-            reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
-            _reply_cb(state.get("reply_token", ""), reply)
-            return
-        
-        if state["data"]["part2"] == False:
-            reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
-            _reply_cb(state.get("reply_token", ""), reply)
-            return
-        
+        _reply_cb(state.get("reply_token", ""), res)
+        # _reply_cb(state.get("reply_token", ""), "")
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
@@ -384,8 +376,9 @@ def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
         return None
 
     # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
-    _patch_state(user_id, {"step": 0})
-    # return
+    state["step"] = 0
+    _save_state(user_id, state)
+    # return 
     return res
 
 
@@ -418,12 +411,8 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     reply_text: Optional[str] = None
 
     if prediction == "edc":
-        # กรณีเป็น EDC ให้ไปจัดการในฟังก์ชันเฉพาะ
-        print("[INFO] Handling EDC message..." )
-        reply_text = _handle_edc_message(user_id, lower)
+        reply_text = _handle_edc_message(user_id, state, lower)
     elif prediction == "other":
-        # ไม่ใช่ EDC ให้ตอบเป็นข้อความว่าง (หรือจะไม่ตอบเลยก็ได้)
-        print("[INFO] Non-EDC message received, no action taken." )
         reply_text = ""
 
     # ส่งข้อความกลับ (ถ้ามี callback และกำหนด reply_text มา)
@@ -444,7 +433,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
         return None
     if not state:
         print(f"[WARN] image from user without session: {user_id}")
-        state = _start(user_id)
+        state = _start(user_id,reply_token)
 
     image_paths = state.get("image_paths", [])
     image_paths.append(image_path)
@@ -457,11 +446,8 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
     if reply_token:
         updates["reply_token"] = reply_token
 
-    state = _patch_state(user_id, updates)
-    print(f"[INFO] Updated state after image: {state}")
-
-    if not state["img_confirm"] and state.get("step") == 0:
-        _schedule_auto_submit(user_id, delay_sec=5.0)
+    _save_state(user_id, state)
+    _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
 
 

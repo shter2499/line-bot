@@ -24,8 +24,8 @@ def _mask_len(v: str | None) -> str:
 
 CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
-print(f"[access token] {CHANNEL_ACCESS_TOKEN}")
-print(f"[channel secret] {CHANNEL_SECRET}")
+# print(f"[access token] {CHANNEL_ACCESS_TOKEN}")
+# print(f"[channel secret] {CHANNEL_SECRET}")
 
 if not CHANNEL_ACCESS_TOKEN or CHANNEL_ACCESS_TOKEN.startswith("YOUR_"):
     raise RuntimeError(

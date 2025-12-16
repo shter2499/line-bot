@@ -12,4 +12,8 @@ torch>=2.9.1
 transformers>=4.46
 safetensors>=0.4.3
 gunicorn>=21.0.2
+<<<<<<< HEAD
 torchvision>=0.16.1
+=======
+torchvision>=0.16.1
+>>>>>>> 3fc96bf (update)
