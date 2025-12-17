@@ -163,8 +163,8 @@ def _auto_reply(user_id: str):
 
     # res = send_message("ห้ามขอรูปซ้ำอีก", state)
     if state.get("img_confirm") and state["data"].get("part1") and state["data"].get("part2"):
-        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
-        _summary(user_id, data)
+        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว"
+        _summary(state, data)
     else:
         if state["data"]["part1"] == False:
             reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
@@ -517,32 +517,71 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
     })
 
     part = json.loads(process_message(lower, state))
+    format_data = json.loads(process_part(lower, state))
+    print("=" * 50)
+    print(f"[handle edc message part] {part}")
+    print(f"[handle edc message test] {format_data}")
+    print(f"[state data] {state['data']}")
+    print("=" * 50)
     res = ''
     
     if part.get("part1"):
-        # เข้าข้อมูลที่ลูปค้าพิมพ์มาเก็บเป็น list ชั่วคราว แล้วค่อย join เป็น string ส่งให้ AI แทน
-        print("[handle edc message] Processing part 1...")
-        latest = _load_state(user_id)
-        data = latest.get("data")
-        tmp = list(data.get("tmp1"))
-        tmp.append(lower)
-        state = _patch_state(user_id, {
-            "data": {"tmp1": tmp}
-        })
-        print(f"[CHECK TMP1] {state['data'].get('tmp1')}")
-        _auto_submit_parts(user_id, "part1")
-        
+        branch = format_data.get("part1").split("รหัสสาขาและชื่อสาขา:")[1].split("\n")[0] 
+        issue = format_data.get("part1").split("ปัญหาที่พบ:")[1].split("\n")[0] 
+        name = format_data.get("part1").split("ชื่อ:")[1].split("\n")[0] 
+        phone = format_data.get("part1").split("เบอร์ติดต่อ:")[1] 
+        print(f"[CHECK PART1] branch:{ branch}, issue:{ issue}, name:{ name}, phone:{ phone}")
+
+        if branch == '' or issue == '' or name == '' or phone == '':
+            return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+        else:
+            state["data"]["part1"] = True
+            state["data"]["text1"] = f"{branch}, {issue}, {name}, {phone}"
+
+        if state["data"]["part2"] == True and state["data"]["part3"] == True:
+            print("[INFO] Proceeding to summary...")
+            data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+            _summary(state, data)
+            return None
+        elif state["data"]["part2"] == False or state["data"]["part3"] == False:
+            res = send_message(f"{format_data.get('part1')}", state)
+
     if part.get("part2"):
-        print("[handle edc message] Processing part 2...")
-        latest = _load_state(user_id)
-        data = latest.get("data")
-        tmp = list(data.get("tmp2"))
-        tmp.append(lower)
-        state = _patch_state(user_id, {
-            "data": {"tmp2": tmp}
-        })
-        print(f"[CHECK TMP2] {state['data'].get('tmp2')}")
-        _auto_submit_parts(user_id, "part2")
+        frezez = format_data.get("part2").split("Ans:")[1].split("\n")[0]
+        restart = format_data.get("part2").split("Ans:")[2].split("\n")[0]
+        slip = format_data.get("part2").split("Ans:")[3]
+        print(f"[CHECK PART2] frezez:{ frezez}, restart:{ restart}, slip:{ slip}")
+        if frezez == '' or restart == '' or slip == '':
+            return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+        else:
+            state["data"]["part2"] = True
+            state["data"]["text2"] = f"""{frezez}, {restart}, {slip}"""
+
+        if state["data"]["part1"] == True and state["data"]["part3"] == True:
+            print("[INFO] Proceeding to summary...")
+            data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+            _summary(state, data)
+            return None
+        elif state["data"]["part1"] == False or state["data"]["part3"] == False:
+            res = send_message(f"{format_data.get('part2')}", state)
+        # res = send_message(f"{format_data.get('part2')}", state)
+
+    print("=" * 50)
+    print(f"[INFO] AI Response: {res}")
+    print("=" * 50)
+
+    # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
+    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
+        print("[INFO] Proceeding to summary...")
+        _summary(state, res)
+        return None
+
+    # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
+    state["step"] = 0
+    _save_state(user_id, state)
+    # return
+    return res
+
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     print("START PROCESS STEP MESSAGE")
