@@ -76,6 +76,37 @@ def _save_state(uid: str, state: Dict) -> None:
         print(f"[ERROR] save state failed for {uid}: {e}")
 
 
+def _patch_state(uid: str, updates: Dict) -> Dict:
+    """Update only specific keys in the latest state stored in Redis.
+
+    - Loads the newest state (or default if missing).
+    - Applies top-level updates from `updates`.
+    - If `updates` contains a `data` dict, merges it into `state["data"]`.
+    - Persists the merged state via _save_state and returns it.
+    """
+    # Load the latest state snapshot
+    state = _load_state(uid) or _default_state(uid)
+
+    # Separate nested data updates (do not mutate the original dict)
+    data_updates = updates.get("data") if isinstance(updates.get("data"), dict) else None
+
+    # Apply top-level keys except "data"
+    for key, value in updates.items():
+        if key == "data":
+            continue
+        state[key] = value
+
+    # Deep-merge into state["data"] if provided
+    if data_updates is not None:
+        if "data" not in state or not isinstance(state["data"], dict):
+            state["data"] = {}
+        for key, value in data_updates.items():
+            state["data"][key] = value
+
+    _save_state(uid, state)
+    return state
+
+
 def _delete_state(uid: str) -> None:
     try:
         _get_redis().delete(uid)
@@ -110,21 +141,25 @@ def _clear(uid: str):
 
 
 def _auto_reply(user_id: str):
+    print("[_auto_reply] Triggered for user_id....")
     state = _load_state(user_id)
-    state['data']['part3'] = True
-    _save_state(user_id, state)
     if not state:
         return
+
+    # Ensure part3 flag and reset step without overwriting other fields
+    state = _patch_state(user_id, {"step": 0, "data": {"part3": True}})
     if state.get("image_paths")[0] not in state["history"] and not state.get("context_confirm"):
-        state["history"].append(state.get("image_paths")[0])
-        _save_state(user_id, state)
+        history = state.get("history", [])
+        image_path = state.get("image_paths")[0]
+        history.append(image_path)
+        state = _patch_state(user_id, {"history": history})
         _reply_cb(state.get("reply_token", ""),
                   "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
         return
 
     # res = send_message("ห้ามขอรูปซ้ำอีก", state)
     if state.get("img_confirm") and state["data"].get("part1") and state["data"].get("part2"):
-        data = f"ส่วนที่หนึ่ง: {state["data"].get("text1")}\nส่วนที่สอง: {state["data"].get("text2")}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
         _summary(state, data)
     else:
         if state["data"]["part1"] == False:
@@ -300,30 +335,35 @@ def _summary(state: Dict, txt) -> str:
     return "ตอนนี้ระบบบันทึกข้อมูลไม่ได้ กรุณารอสักครู่ครับ"
 
 
-def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
+def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
     """ตัว test จะมีไว้แยกว่าข้อความที่รับเข้ามาอยู่ใน part ไหนบ้าง หลังจากนั้นข้อมูลของ part นั้นจะถูกส่งต่อไปที่
     send_message เพื่อให้ AI จัดเรียงข้อมูลใหม่ก่อนจะบันทึกลง state อีกครั้ง
     """
+    state = _load_state(user_id) or _default_state(user_id)
 
     # ตอนนี้รองรับเฉพาะกรณีเริ่ม flow ใหม่ (step == 0)
-    if state.get("step") != 0:
+    if state.get("step", 0) != 0:
         # อยู่ระหว่าง flow อื่นอยู่ ให้ไม่ทำอะไรเพิ่มเติม
         return None
 
-    state["step"] = 1
-    state["history"].append(lower)
-    state["context_confirm"] = True
-    _save_state(user_id, state)
+    history = state.get("history", [])
+    history.append(lower)
+    state = _patch_state(user_id, {
+        "step": 1,
+        "history": history,
+        "context_confirm": True,
+    })
 
     part = json.loads(process_message(lower, state))
     format_data = json.loads(process_part(lower, state))
     print("=" * 50)
     print(f"[handle edc message part] {part}")
     print(f"[handle edc message test] {format_data}")
-    print(f"[state data] {state["data"]}")
+    print(f"[state data] {state['data']}")
     print("=" * 50)
     res = ''
     if part.get("part1"):
+        print("[INFO] Processing part 1...")
         branch = format_data.get("part1").split("รหัสสาขาและชื่อสาขา:")[1].split("\n")[0] 
         issue = format_data.get("part1").split("ปัญหาที่พบ:")[1].split("\n")[0] 
         name = format_data.get("part1").split("ชื่อ:")[1].split("\n")[0] 
@@ -331,33 +371,49 @@ def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
         print(f"[CHECK PART1] branch:{ branch}, issue:{ issue}, name:{ name}, phone:{ phone}")
 
         if branch == '' or issue == '' or name == '' or phone == '':
+            _patch_state(user_id, {"step": 0})
             return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
         else:
-            state["data"]["part1"] = True
-            state["data"]["text1"] = f"{branch}, {issue}, {name}, {phone}"
+            state = _patch_state(user_id, {
+                "step": 0,
+                "data": {
+                    "part1": True,
+                    "text1": f"{branch}, {issue}, {name}, {phone}",
+                },
+            })
 
         if state["data"]["part2"] == True and state["data"]["part3"] == True:
             print("[INFO] Proceeding to summary...")
-            data = f"ส่วนที่หนึ่ง: {state["data"].get("text1")}\nส่วนที่สอง: {state["data"].get("text2")}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+            data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
             _summary(state, data)
             return None
         elif state["data"]["part2"] == False or state["data"]["part3"] == False:
             res = send_message(f"{format_data.get('part1')}", state)
 
     if part.get("part2"):
+        print("[INFO] Processing part 2...")
         frezez = format_data.get("part2").split("Ans:")[1].split("\n")[0]
         restart = format_data.get("part2").split("Ans:")[2].split("\n")[0]
         slip = format_data.get("part2").split("Ans:")[3]
         print(f"[CHECK PART2] frezez:{ frezez}, restart:{ restart}, slip:{ slip}")
+        print("=" * 50)
+        print(f"[CHECK STATE] {state}")
+        print("=" * 50)
         if frezez == '' or restart == '' or slip == '':
+            _patch_state(user_id, {"step": 0})
             return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
         else:
-            state["data"]["part2"] = True
-            state["data"]["text2"] = f"""{frezez}, {restart}, {slip}"""
+            state = _patch_state(user_id, {
+                "step": 0,
+                "data": {
+                    "part2": True,
+                    "text2": f"""{frezez}, {restart}, {slip}""",
+                },
+            })
 
         if state["data"]["part1"] == True and state["data"]["part3"] == True:
             print("[INFO] Proceeding to summary...")
-            data = f"ส่วนที่หนึ่ง: {state["data"].get("text1")}\nส่วนที่สอง: {state["data"].get("text2")}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+            data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
             _summary(state, data)
             return None
         elif state["data"]["part1"] == False or state["data"]["part3"] == False:
@@ -375,8 +431,7 @@ def _handle_edc_message(user_id: str, state: Dict, lower: str) -> Optional[str]:
         return None
 
     # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
-    state["step"] = 0
-    _save_state(user_id, state)
+    _patch_state(user_id, {"step": 0})
     # return
     return res
 
@@ -407,9 +462,11 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
 
     if prediction == "edc":
         # กรณีเป็น EDC ให้ไปจัดการในฟังก์ชันเฉพาะ
-        reply_text = _handle_edc_message(user_id, state, lower)
+        print("[INFO] Handling EDC message..." )
+        reply_text = _handle_edc_message(user_id, lower)
     elif prediction == "other":
         # ไม่ใช่ EDC ให้ตอบเป็นข้อความว่าง (หรือจะไม่ตอบเลยก็ได้)
+        print("[INFO] Non-EDC message received, no action taken." )
         reply_text = ""
 
     # ส่งข้อความกลับ (ถ้ามี callback และกำหนด reply_text มา)
@@ -434,15 +491,20 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
 
     image_paths = state.get("image_paths", [])
     image_paths.append(image_path)
-    state["image_paths"] = image_paths
-    state["updated"] = time.time()
-    state["img_confirm"] = True
 
+    updates = {
+        "img_confirm": True,
+        "image_paths": image_paths,
+        "data": {"part3": True},
+    }
     if reply_token:
-        state["reply_token"] = reply_token
+        updates["reply_token"] = reply_token
 
-    _save_state(user_id, state)
-    _schedule_auto_submit(user_id, delay_sec=5.0)
+    state = _patch_state(user_id, updates)
+    print(f"[INFO] Updated state after image: {state}")
+
+    if not state["img_confirm"] and state.get("step") == 0:
+        _schedule_auto_submit(user_id, delay_sec=5.0)
     return None
 
 
