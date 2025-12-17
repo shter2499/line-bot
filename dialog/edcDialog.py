@@ -48,7 +48,13 @@ def _default_state(uid: str, reply_token: str) -> Dict:
         "context_confirm": False,
         "img_confirm": False,
         "edc_confirm": False,
-        "reply_token": reply_token
+        "data": {
+            "part1": False,
+            "text1": "",
+            "part2": False,
+            "text2": "",
+            "part3": False,
+        }
     }
 
 
@@ -155,8 +161,16 @@ def _auto_reply(user_id: str):
         data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
         _summary(state, data)
     else:
-        _reply_cb(state.get("reply_token", ""), res)
-        # _reply_cb(state.get("reply_token", ""), "")
+        if state["data"]["part1"] == False:
+            reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+            _reply_cb(state.get("reply_token", ""), reply)
+            return
+        
+        if state["data"]["part2"] == False:
+            reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
+            _reply_cb(state.get("reply_token", ""), reply)
+            return
+        
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
@@ -378,7 +392,7 @@ def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
     # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
     state["step"] = 0
     _save_state(user_id, state)
-    # return 
+    # return
     return res
 
 
