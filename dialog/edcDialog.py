@@ -17,7 +17,6 @@ import re
 import time
 import threading
 import json
-from PIL import Image
 from typing import Dict, Optional, Callable
 
 
@@ -50,9 +49,11 @@ def _default_state(uid: str, reply_token: str) -> Dict:
         "edc_confirm": False,
         "data": {
             "part1": False,
-            "text1": "",
+            "text1": {"branch": "", "issue": "", "name": "", "phone": ""},
+            "tmp1": [],
             "part2": False,
-            "text2": "",
+            "text2": {"freeze": "", "restart": "", "slip": ""},
+            "tmp2": [],
             "part3": False,
         }
     }
@@ -170,7 +171,31 @@ def _auto_reply(user_id: str):
             reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
             _reply_cb(state.get("reply_token", ""), reply)
             return
-        
+    
+
+def _submit_parts(user_id: str, parts: str):
+    print("=" * 50)
+    print(f"[_submit_parts] Triggered for user_id {user_id}")
+    data = _load_state(user_id).get("data")
+    print(f"check tmp1: {data.get('tmp1')}")
+    print(f"check data: {data}")
+    branch = data.get("text1").get("branch")
+    issue = data.get("text1").get("issue")
+    name = data.get("text1").get("name")
+    phone = data.get("text1").get("phone")
+    print(f"[CHECK PART1] branch:{ branch}, issue:{ issue}, name:{ name}, phone:{ phone}")
+
+    if branch == '' or issue == '' or name == '' or phone == '':
+        _patch_state(user_id, {"step": 0})
+        return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+    else:
+        state = _patch_state(user_id, {
+            "step": 0,
+            "data": {
+                "part1": True,
+                "text1": {"branch": branch, "issue": issue, "name": name, "phone": phone},
+            },
+        })
 
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
@@ -181,6 +206,20 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
         except Exception:
             pass
     t = threading.Timer(delay_sec, _auto_reply, args=(user_id,))
+    t.daemon = True
+    _timers[user_id] = t
+    t.start()
+
+
+def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 20.0):
+    print(f"[_auto_submit_parts] Triggered for user_id {user_id}")
+    old = _timers.get(user_id)
+    if old:
+        try:
+            old.cancel()
+        except Exception:
+            pass
+    t = threading.Timer(delay_sec, _submit_parts, args=(user_id, parts))
     t.daemon = True
     _timers[user_id] = t
     t.start()
@@ -274,8 +313,8 @@ def _summary(state: Dict, txt) -> str:
     # print("=" * 50)
 
     print("[INFO] Sending ticket creation request...")
-    resp = fetch(payload)
-    # resp = {"ok": False}
+    # resp = fetch(payload)
+    resp = {"ok": False}
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -306,59 +345,68 @@ def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
     # ตอนนี้รองรับเฉพาะกรณีเริ่ม flow ใหม่ (step == 0)
     if state.get("step", 0) != 0:
         # อยู่ระหว่าง flow อื่นอยู่ ให้ไม่ทำอะไรเพิ่มเติม
+        print("=" * 50)
+        print(f"[INFO] user {user_id} in progress, ignoring EDC message")
+        print("=" * 50)
         return None
 
-        if not state:
-            state = _start(user_id, reply_token)
-        if reply_token:
-            state["reply_token"] = reply_token
+    history = state.get("history", [])
+    history.append(lower)
+    state = _patch_state(user_id, {
+        # "step": 1,
+        "history": history,
+        "context_confirm": True,
+    })
 
     part = json.loads(process_message(lower, state))
     format_data = json.loads(process_part(lower, state))
     print("=" * 50)
     print(f"[handle edc message part] {part}")
-    print(f"[handle edc message test] {format_data}")
-    print(f"[state data] {state['data']}")
+    print(f"[handle edc message format_data] {format_data}")
     print("=" * 50)
     res = ''
     if part.get("part1"):
-        print("[INFO] Processing part 1...")
-        branch = format_data.get("part1").split("รหัสสาขาและชื่อสาขา:")[1].split("\n")[0] 
-        issue = format_data.get("part1").split("ปัญหาที่พบ:")[1].split("\n")[0] 
-        name = format_data.get("part1").split("ชื่อ:")[1].split("\n")[0] 
-        phone = format_data.get("part1").split("เบอร์ติดต่อ:")[1] 
-        print(f"[CHECK PART1] branch:{ branch}, issue:{ issue}, name:{ name}, phone:{ phone}")
+        # เข้าข้อมูลที่ลูปค้าพิมพ์มาเก็บเป็น list ชั่วคราว แล้วค่อย join เป็น string ส่งให้ AI แทน
+        print("[handle edc message] Processing part 1...")
+        tmp = state["data"].get("tmp1", [])
+        tmp.append(lower)
+        _auto_submit_parts(user_id, format_data, part.get("part1"))
+        # branch = format_data.get("part1").split("รหัสสาขาและชื่อสาขา:")[1].split("\n")[0] 
+        # issue = format_data.get("part1").split("ปัญหาที่พบ:")[1].split("\n")[0] 
+        # name = format_data.get("part1").split("ชื่อ:")[1].split("\n")[0] 
+        # phone = format_data.get("part1").split("เบอร์ติดต่อ:")[1] 
+        # print(f"[CHECK PART1] branch:{ branch}, issue:{ issue}, name:{ name}, phone:{ phone}")
 
-        if branch == '' or issue == '' or name == '' or phone == '':
-            _patch_state(user_id, {"step": 0})
-            return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
-        else:
-            state = _patch_state(user_id, {
-                "step": 0,
-                "data": {
-                    "part1": True,
-                    "text1": f"{branch}, {issue}, {name}, {phone}",
-                },
-            })
+        # if branch == '' or issue == '' or name == '' or phone == '':
+        #     _patch_state(user_id, {"step": 0})
+        #     return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
+        # else:
+        #     state = _patch_state(user_id, {
+        #         "step": 0,
+        #         "data": {
+        #             "part1": True,
+        #             "text1": {"branch": branch, "issue": issue, "name": name, "phone": phone},
+        #         },
+        #     })
 
-        if state["data"]["part2"] == True and state["data"]["part3"] == True:
-            print("[INFO] Proceeding to summary...")
-            data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
-            _summary(state, data)
-            return None
-        elif state["data"]["part2"] == False or state["data"]["part3"] == False:
-            res = send_message(f"{format_data.get('part1')}", state)
+        # if state["data"]["part2"] == True and state["data"]["part3"] == True:
+        #     print("[INFO] Proceeding to summary...")
+        #     data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+        #     _summary(state, data)
+        #     return None
+        # elif state["data"]["part2"] == False or state["data"]["part3"] == False:
+        #     res = send_message(f"{format_data.get('part1')}", state)
 
     if part.get("part2"):
         print("[INFO] Processing part 2...")
-        frezez = format_data.get("part2").split("Ans:")[1].split("\n")[0]
+        freeze = format_data.get("part2").split("Ans:")[1].split("\n")[0]
         restart = format_data.get("part2").split("Ans:")[2].split("\n")[0]
         slip = format_data.get("part2").split("Ans:")[3]
-        print(f"[CHECK PART2] frezez:{ frezez}, restart:{ restart}, slip:{ slip}")
+        print(f"[CHECK PART2] freeze:{ freeze}, restart:{ restart}, slip:{ slip}")
         print("=" * 50)
         print(f"[CHECK STATE] {state}")
         print("=" * 50)
-        if frezez == '' or restart == '' or slip == '':
+        if freeze == '' or restart == '' or slip == '':
             _patch_state(user_id, {"step": 0})
             return "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
         else:
@@ -366,7 +414,7 @@ def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
                 "step": 0,
                 "data": {
                     "part2": True,
-                    "text2": f"""{frezez}, {restart}, {slip}""",
+                    "text2": {"freeze": freeze, "restart": restart, "slip": slip},
                 },
             })
 
@@ -379,9 +427,9 @@ def _handle_edc_message(user_id: str, lower: str) -> Optional[str]:
             res = send_message(f"{format_data.get('part2')}", state)
         # res = send_message(f"{format_data.get('part2')}", state)
 
-    print("=" * 50)
-    print(f"[INFO] AI Response: {res}")
-    print("=" * 50)
+    # print("=" * 50)
+    # print(f"[INFO] AI Response: {res}")
+    # print("=" * 50)
 
     # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
     if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
