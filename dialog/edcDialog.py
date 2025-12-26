@@ -163,7 +163,7 @@ def _auto_reply(user_id: str):
 
     # res = send_message("ห้ามขอรูปซ้ำอีก", state)
     if state.get("img_confirm") and state["data"].get("part1") and state["data"].get("part2"):
-        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว"
+        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
         _summary(state, data)
     else:
         if state["data"]["part1"] == False:
