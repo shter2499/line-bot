@@ -79,7 +79,6 @@ class RedisSession:
         Returns:
             Dict: ข้อมูล session หรือ None ถ้าไม่พบ.
         """
-        print(f"[Redis] Retrieving session {session_id}")
         key = f"session:{session_id}"
         data = self.redis_client.get(key)
         if data:
