@@ -220,8 +220,11 @@ def _submit_parts(user_id: str, parts: str):
                 },
             })
             print(f"[CHECK STATE AFTER PART1] {state}")
+            if state["data"]["tmp2"]:
+                _submit_parts(user_id, "part2")
             
-        if branch != '' and issue != '' and name != '' and phone != '' and state["data"]["part2"] == False:
+        if branch != '' and issue != '' and name != '' and phone != '' and state["data"]["part2"] == False and state["data"]["tmp2"] == []:
+            print("[INFO] Asking for part 2 data from part 1...")
             _reply_cb(state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
         
     if parts == "part2":
@@ -271,10 +274,12 @@ def _submit_parts(user_id: str, parts: str):
                 "part3": True,
             },
         })
-        if not state["data"]["part1"]:
+        if not state["data"]["part1"] and state["data"]["tmp1"] == []:
+            print("[INFO] Asking for part 1 data from part 3...")
             _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
             return
-        if not state["data"]["part2"]:
+        if not state["data"]["part2"] and state["data"]["tmp2"] == []:
+            print("[INFO] Asking for part 2 data from part 3...")
             _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
             return
 
