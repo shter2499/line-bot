@@ -341,7 +341,11 @@ def _submit_parts(user_id: str, parts: str):
 
     if state["data"]["part1"] == True and state["data"]["part2"] == True and state["data"]["part3"] == True:
         print("[INFO] Proceeding to summary...")
-        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
+        data = {
+            "part1": state["data"].get("text1"),
+            "part2": state["data"].get("text2"),
+            "part3": "มีรูปภาพประกอบแล้ว",
+        }
         _summary(user_id, data)
         return
 
@@ -372,25 +376,30 @@ def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 5.0):
     t.start()
 
 
-def _summary(user_id: str, txt: str) -> str:
+def _summary(user_id: str, txt: dict) -> str:
     state = _load_state(user_id)
+    image_paths = state.get('image_paths', [])
+    part1 = txt["part1"]
+    part2 = txt["part2"]
+    part3 = txt["part3"]
     print("=" * 50)
     print(f"[_summary] [txt] {txt}")
     print(f"[state] {state}")
+    # print(f"[branch] {branch}, [standard] {standard}, [company] {company}, [header] {header}")
+    # print(f"[result] {result}")
     print("=" * 50)
-    image_paths = state.get('image_paths', [])
     user_id = state.get("uid")
-    state = _load_state(user_id)
-    result = find_branch(txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0])
+    result = find_branch(part1.get("branch", ""))
     branch = result["site_name"] if result else None
     standard = result["standard"] if result else None
     company = result["company_name"] if result else None
-    header = parse_header(txt.split("ส่วนที่สอง:")[1].split('\n')[0])
+    header = parse_header(f"{part2.get('freeze', '')},{part2.get('restart', '')},{part2.get('slip', '')}")
+    # dup = search_duplicate(branch)
 
     try:
-        detail = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[1]
-        user = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[2]
-        phone = txt.split("ส่วนที่หนึ่ง:")[1].split(',')[3].split("\n")[0]
+        detail = part1.get("issue", "")
+        user = part1.get("name", "")
+        phone = part1.get("phone", "")
     except Exception as e:
         print(" ⚠️ " * 20)
         print(f"[ERROR] parsing answers failed: {e}")
@@ -414,9 +423,9 @@ def _summary(user_id: str, txt: str) -> str:
     payload = {
         "request": {
             "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-            "description": f"ชื่อผู้แจ้ง  : {user}<br />เบอร์ติดต่อ : {phone}<br />สถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else txt.split('ส่วนที่หนึ่ง:')[1].split(',')[0]}<br />ปัญหาที่พบ/คำร้องขอ : {detail}<br />SN : N/A<br />Model : Not Specified",
+            "description": f"ชื่อผู้แจ้ง  : {user}<br />เบอร์ติดต่อ : {phone}<br />สถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else part1.get('branch', '')}<br />ปัญหาที่พบ/คำร้องขอ : {detail}<br />SN : N/A<br />Model : Not Specified",
             "requester": {
-                "name": branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]
+                "name": branch if branch is not None else part1.get("branch", "")
             },
             "template": {
                 "id": "5101",
@@ -430,12 +439,12 @@ def _summary(user_id: str, txt: str) -> str:
             "udf_fields": {
                 "udf_sline_902": phone,
                 "udf_sline_62": "สาขา",
-                "udf_pick_1801": company,
+                # "udf_pick_1801": company,
                 "udf_pick_8705": "EDC",
                 "udf_pick_9601": "BBL",
                 "udf_sline_611": "N/A",
                 "udf_sline_1507": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else txt.split('ส่วนที่หนึ่ง:')[1].split(',')[0]}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
+                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else part1.get('branch', '')}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
                 "udf_date_68": {
                     "display_value": "2025/11/28 07:35",
                     "value": "1764229800000"
@@ -457,13 +466,14 @@ def _summary(user_id: str, txt: str) -> str:
         }
     }
 
-    # print("=" * 50)
-    # print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
-    # print("=" * 50)
+    print("=" * 50)
+    print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
+    print("=" * 50)
 
     print("[INFO] Sending ticket creation request...")
-    # resp = fetch(payload)
-    resp = {"ok": False}
+    resp = fetch(payload)
+    print(f"[INFO] Ticket creation response: {resp}")
+    # resp = {"ok": False}
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -533,19 +543,6 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
         })
         print(f"[CHECK TMP2] {state['data'].get('tmp2')}")
         _auto_submit_parts(user_id, "part2")
-
-    # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
-    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
-        print("[INFO] Proceeding to summary...")
-        _summary(user_id, res)
-        return None
-
-    # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
-    state["step"] = 0
-    _save_state(user_id, state)
-    # return
-    return res
-
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     print("START PROCESS STEP MESSAGE")
