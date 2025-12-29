@@ -181,7 +181,7 @@ def _submit_parts(user_id: str, parts: str):
     print(f"[_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     state = _load_state(user_id)
     data = state.get("data")
-    print(f"[CHECK STATE BEFORE SUBMIT] {state['data']['text1']}")
+    # print(f"[CHECK STATE BEFORE SUBMIT] {state['data']['text1']}")
     
     if parts == "part1":
         print("[_submit_parts] Processing part 1...")
@@ -191,7 +191,7 @@ def _submit_parts(user_id: str, parts: str):
         issue = format_data.split("ปัญหาที่พบ:")[1].split("\\n")[0].replace(" ", "")
         name = format_data.split("ชื่อ:")[1].split("\\n")[0].replace(" ", "")
         phone = format_data.split("เบอร์ติดต่อ:")[1].split('"')[0].replace(" ", "")
-        print(f"[CHECK PART1] branch({branch}) == '':{ branch == ''},\nissue({issue}) == '':{ issue == ''},\nname({name}) == '':{ name == ''},\nphone({phone}) == '':{ phone == ''},\nreply1:{ data['reply1'] }")
+        # print(f"[CHECK PART1] branch({branch}) == '':{ branch == ''},\nissue({issue}) == '':{ issue == ''},\nname({name}) == '':{ name == ''},\nphone({phone}) == '':{ phone == ''},\nreply1:{ data['reply1'] }")
 
         if (branch == '' or issue == '' or name == '' or phone == '') and data["reply1"] == False:
             state = _patch_state(user_id, {
@@ -252,7 +252,7 @@ def _submit_parts(user_id: str, parts: str):
         freeze = format_data.split("Ans:")[1].split("\\n")[0]
         restart = format_data.split("Ans:")[2].split("\\n")[0]
         slip = format_data.split("Ans:")[3].split('"}')[0]
-        print(f"[CHECK PART2] freeze:{ freeze}, restart:{ restart}, slip:{ slip}")
+        # print(f"[CHECK PART2] freeze:{ freeze}, restart:{ restart}, slip:{ slip}")
         if (freeze == '' or restart == '' or slip == '') and data["reply2"] == False:
             _patch_state(user_id, {"step": 0, "data": {"reply2": True}})
             state = _patch_state(user_id, {
@@ -286,9 +286,9 @@ def _submit_parts(user_id: str, parts: str):
                 },
             })
             req_data = []
-            print(f"[CHECK STATE AFTER PART2 RETRY] {state['data']['text2']}")
+            # print(f"[CHECK STATE AFTER PART2 RETRY] {state['data']['text2']}")
             for key in state["data"]['text2'].keys():
-                print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text2'][key].replace(" ", "") == ''}")
+                # print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text2'][key].replace(" ", "") == ''}")
                 if state["data"]['text2'][key].replace(" ", "") == '':
                     req_data.append(key)
                 
@@ -318,7 +318,7 @@ def _submit_parts(user_id: str, parts: str):
         
     if parts == "part3":
         print("[_submit_parts] Processing part 3...")
-        print(f"[CHECK STATE BEFORE PART3] {state}")
+        # print(f"[CHECK STATE BEFORE PART3] {state}")
         state = _patch_state(user_id, {
             "step": 0,
             "data": {
