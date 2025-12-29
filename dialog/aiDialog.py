@@ -79,83 +79,6 @@ System:
         print(" ⚠️ " * 20)
         return
 
-
-def send_message(message: str, state: dict[str, any]) -> str:
-    try:
-        print('[Send request to ai]')
-
-        data = state.get("data") or {}
-        current_state = {
-            "part1_done": data.get("part1"),
-            "part2_done": data.get("part2"),
-            "img_confirm": data.get("part3"),
-        }
-        print("=" * 50)
-        print(f"[send_message] current_state: {current_state}")
-        print("=" * 50)
-        context_msg = "CURRENT_STATE:\n" + json.dumps(current_state, ensure_ascii=False, indent=2)
-
-        system_prompt = f"""
-System:
-คุณคือผู้ช่วยเก็บข้อมูลเคส EDC (ไม่ใช่แชทบอทคุยเล่น)
-คุณต้องตัดสินใจจาก CURRENT_STATE เท่านั้น
-
-CURRENT_STATE จะมี:
-- part1_done: {bool(state.get("part1_done"))}
-- part2_done: {bool(state.get("part2_done"))}
-- img_confirm: {bool(state.get("img_confirm"))}
-
-กติกาการตอบจะเลือกตอบทีละข้อที่เป็น False ห้ามตอบข้อความอย่างอื่นนอกจากข้อความที่ระบุไว้ในข้อ 1-4 เท่านั้น:
-
-1) ถ้า part1_done เป็น false หรือข้อมูลที่ได้รับมาไม่ครบเช่น "รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา: \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ: \nเบอร์ติดต่อ:" ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
-   -  รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:
-
-2) ถ้า part1_done เป็น true หรือข้อมูลที่ได้รับมาครบถ้วนเช่น "รบกวนขอข้อมูลตามนี้หน่อยครับ \nรหัสสาขาและชื่อสาขา:1350 \nปัญหาที่พบ:บิลไม่ตัดครับ \nชื่อ:เอ \nเบอร์ติดต่อ:0812345678" ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
-   -  เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:
-
-3) ถ้า part2_done เป็น false ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
-   -  เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:
-
-4) ถ้า part1_done และ part2_done เป็น true ให้ขอข้อมูลตามข้อความนี้ (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
-   -  รบกวนขอรูปภาพด้วยครับ
-
-5) ถ้า img_confirm เป็น false ให้ตอบด้วยข้อความนี้เท่านั้น (ห้ามขอข้อมูลซ้ำและห้ามตอบอย่างอื่น):
-   -  รบกวนขอรูปภาพด้วยครับ
-
-ข้อสำคัญ:
-- ห้ามถามซ้ำส่วนที่ทำเสร็จแล้ว (เช่น ถ้า part2_done เป็น true ห้ามถาม Part2 อีก)
-- ห้ามทักทาย พูดคุย หรืออธิบายกติกา ให้ตอบตามข้อ 1-5 เท่านั้น
-"""
-
-
-        context_msg = "CURRENT_STATE:\n" + \
-            json.dumps(current_state, ensure_ascii=False, indent=2)
-
-        start = time.perf_counter()
-
-        response = ollama.chat(
-            model="qwen2.5:14b",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "system", "content": context_msg},
-                {"role": "user", "content": message},
-            ],
-            options={"temperature": 0.2},
-        )
-
-        end = time.perf_counter()
-        print("=" * 50)
-        print(f"Request took {end - start:.2f} seconds")
-        print(f"Response: {response.message.content}")
-        print("=" * 50)
-        return response.message.content
-    except Exception as e:
-        print(" ⚠️ " * 20)
-        print(f"[ERROR]: {e}")
-        print(" ⚠️ " * 20)
-        return
-
-
 def process_message(message: str, state: dict[str, any]) -> str:
     state_data = state.get('data') or []
     try:
@@ -316,6 +239,7 @@ Ans A"
         end = time.perf_counter()
         print("=" * 50)
         print(f"Request took {end - start:.2f} seconds")
+        print(f"message: {message}")
         print(f"Response PART PROCESSOR: {response.message.content}")
         print("=" * 50)
         return response.message.content
@@ -326,4 +250,65 @@ Ans A"
         return
 
 
-__all__ = ["send_message"]
+def requester(data: str) -> str:
+    try:
+        print('[Send request to ai]')
+        start = time.perf_counter()
+        
+        systemprompt = """คุณเป็นตัวช่วย "ขอข้อมูลที่ขาดหาย" เท่านั้น
+อ่านข้อความของผู้ใช้ 1 ข้อความ แล้วตอบเป็นประโยคสั้นๆเท่านั้น
+
+ตัวอย่าง:
+1) "branch"
+    -> "รบกวนขอรหัสสาขาและชื่อสาขาหน่อยครับ"
+2) "issue"
+    -> "รบกวนขอรายละเอียดปัญหาที่พบหน่อยครับ"
+3) "name"
+    -> "รบกวนขอชื่อผู้ติดต่อหน่อยครับ"
+4) "phone"
+    -> "รบกวนขอเบอร์ติดต่อไว้หน่อยครับ"
+5) "freeze"
+    -> "เครื่อง EDC ค้างไหมครับ"
+6) "restart"
+    -> "ได้มีการ Restart เครื่อง EDC ไหมครับ"
+7) "slip"
+    -> "สลิปที่เครื่อง EDC ออกไหมครับ"
+    
+ตอบแค่ประโยคสั้นๆตามตัวอย่างนี้ถ้าหากขาดข้อมูลหลายอย่างให้รวมประโยคสั้นๆเหล่านั้นเข้าด้วยกัน เช่น:
+" branch, name" -> "รบกวนขอรหัสสาขาและชื่อผู้ติดต่อหน่อยครับ"
+" issue, phone" -> "รบกวนขอรายละเอียดปัญหาที่พบและเบอร์ติดต่อไว้หน่อยครับ"
+" freeze, restart" -> "เครื่อง EDC ค้าง กับ ได้มีการ Restart เครื่อง EDC ไหมครับ"
+"""
+
+        response = ollama.chat(
+            model="qwen2.5:14b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": systemprompt
+                },
+                {
+                    "role": "user",
+                    "content": data
+                },
+            ],
+            options={
+                "temperature": 0.2,
+            }
+        )
+        # res = response.json()
+
+        end = time.perf_counter()
+        print("=" * 50)
+        print(f"Request took {end - start:.2f} seconds")
+        print(f"message: {data}")
+        print(f"Response: {response.message.content}")
+        print("=" * 50)
+        return response.message.content
+    except Exception as e:
+        print(" ⚠️ " * 20)
+        print(f"[ERROR]: {e}")
+        print(" ⚠️ " * 20)
+        return
+
+__all__ = ["send_message", "process_message", "process_part", "requester"]

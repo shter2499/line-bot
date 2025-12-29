@@ -6,7 +6,7 @@ State management now uses Redis via session.RedisSession instead of in-memory di
 from __future__ import annotations
 
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
-from dialog.aiDialog import send_message, process_message, process_part
+from dialog.aiDialog import requester, process_message, process_part
 import predict_classifier
 import predict_cr_classifier
 import predict_image_edc
@@ -182,16 +182,17 @@ def _submit_parts(user_id: str, parts: str):
     print(f"[_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     state = _load_state(user_id)
     data = state.get("data")
+    print(f"[CHECK STATE BEFORE SUBMIT] {state['data']['text1']}")
     
     if parts == "part1":
         print("[_submit_parts] Processing part 1...")
         join_tmp = ",".join(data.get("tmp1"))
         format_data = process_part(join_tmp, state)
-        branch = format_data.split("รหัสสาขาและชื่อสาขา:")[1].split("\\n")[0]
-        issue = format_data.split("ปัญหาที่พบ:")[1].split("\\n")[0]
-        name = format_data.split("ชื่อ:")[1].split("\\n")[0]
-        phone = format_data.split("เบอร์ติดต่อ:")[1].split('"}')[0]
-        print(f"[CHECK PART1] branch: {branch}, \nissue: {issue}, \nname: {name}, \nphone: {phone}")
+        branch = format_data.split("รหัสสาขาและชื่อสาขา:")[1].split("\\n")[0].replace(" ", "")
+        issue = format_data.split("ปัญหาที่พบ:")[1].split("\\n")[0].replace(" ", "")
+        name = format_data.split("ชื่อ:")[1].split("\\n")[0].replace(" ", "")
+        phone = format_data.split("เบอร์ติดต่อ:")[1].split('"')[0].replace(" ", "")
+        print(f"[CHECK PART1] branch({branch}) == '':{ branch == ''},\nissue({issue}) == '':{ issue == ''},\nname({name}) == '':{ name == ''},\nphone({phone}) == '':{ phone == ''},\nreply1:{ data['reply1'] }")
 
         if (branch == '' or issue == '' or name == '' or phone == '') and data["reply1"] == False:
             state = _patch_state(user_id, {
@@ -200,13 +201,33 @@ def _submit_parts(user_id: str, parts: str):
                     "part1": True,
                     "reply1": True,
                     "tmp1": [],
-                    "text1": {"branch": branch if data['text1']['branch'] == "" else data['text1']['branch'], 
-                                "issue": issue if data['text1']['branch'] == "" else data['text1']['issue'], 
-                                "name": name if data['text1']['branch'] == "" else data['text1']['name'], 
-                                "phone": phone if data['text1']['branch'] == "" else data['text1']['phone']},
+                    "text1": {"branch": branch if data['text1']['branch'].replace(" ", "") == "" else data['text1']['branch'].replace(" ", ""), 
+                                "issue": issue if data['text1']['issue'].replace(" ", "") == "" else data['text1']['issue'].replace(" ", ""), 
+                                "name": name if data['text1']['name'].replace(" ", "") == "" else data['text1']['name'].replace(" ", ""), 
+                                "phone": phone if data['text1']['phone'].replace(" ", "") == "" else data['text1']['phone'].replace(" ", "")},
                 },
             })
             _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part1"))
+        elif (branch == '' or issue == '' or name == '' or phone == '') and data["reply1"] == True:
+            state = _patch_state(user_id, {
+                "step": 0,
+                "data": {
+                    "part1": True,
+                    "reply1": True,
+                    "tmp1": [],
+                    "text1": {"branch": branch if data['text1']['branch'].replace(" ", "") == "" else data['text1']['branch'].replace(" ", ""), 
+                                "issue": issue if data['text1']['issue'].replace(" ", "") == "" else data['text1']['issue'].replace(" ", ""), 
+                                "name": name if data['text1']['name'].replace(" ", "") == "" else data['text1']['name'].replace(" ", ""), 
+                                "phone": phone if data['text1']['phone'].replace(" ", "") == "" else data['text1']['phone'].replace(" ", "")},
+                },
+            })
+            req_data = []
+            for key in state["data"]['text1'].keys():
+                if state["data"]['text1'][key].replace(" ", "") == '':
+                    req_data.append(key)
+                
+            request = requester(','.join(req_data))
+            _reply_cb(state.get("reply_token", ""), request)
         else:
             state = _patch_state(user_id, {
                 "step": 0,
@@ -214,17 +235,17 @@ def _submit_parts(user_id: str, parts: str):
                     "part1": True,
                     "tmp1": [],
                     "text1": {"branch": branch if data['text1']['branch'] == "" else data['text1']['branch'], 
-                                "issue": issue if data['text1']['branch'] == "" else data['text1']['issue'], 
-                                "name": name if data['text1']['branch'] == "" else data['text1']['name'], 
-                                "phone": phone if data['text1']['branch'] == "" else data['text1']['phone']},
+                                "issue": issue if data['text1']['issue'] == "" else data['text1']['issue'], 
+                                "name": name if data['text1']['name'] == "" else data['text1']['name'], 
+                                "phone": phone if data['text1']['phone'] == "" else data['text1']['phone']},
                 },
             })
-            print(f"[CHECK STATE AFTER PART1] {state}")
             if state["data"]["tmp2"]:
                 _submit_parts(user_id, "part2")
             
         if branch != '' and issue != '' and name != '' and phone != '' and state["data"]["part2"] == False and state["data"]["tmp2"] == []:
             print("[INFO] Asking for part 2 data from part 1...")
+            state = _patch_state(user_id, {"data": {"reply2": True}})
             _reply_cb(state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
         
     if parts == "part2":
@@ -247,6 +268,34 @@ def _submit_parts(user_id: str, parts: str):
                               "slip": slip if data["text2"]["slip"] == "" else data["text2"]["slip"]},
                 },
             })
+            # req_data = []
+            # print(f"[CHECK STATE AFTER PART2 RETRY] {state['data']['text2']}")
+            # for key in state["data"]['text2'].keys():
+            #     print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text2'][key].replace(" ", "") == ''}")
+            #     if state["data"]['text2'][key].replace(" ", "") == '':
+            #         req_data.append(key)
+                
+            request = requester(','.join(req_data))
+            _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
+        elif (freeze == '' or restart == '' or slip == '') and data["reply2"] == True:
+            state = _patch_state(user_id, {
+                "step": 0,
+                "data": {
+                    "part2": True,
+                    "tmp2": [],
+                    "text2": {"freeze": freeze if data["text2"]["freeze"] == "" else data["text2"]["freeze"], 
+                              "restart": restart if data["text2"]["restart"] == "" else data["text2"]["restart"], 
+                              "slip": slip if data["text2"]["slip"] == "" else data["text2"]["slip"]},
+                },
+            })
+            req_data = []
+            print(f"[CHECK STATE AFTER PART2 RETRY] {state['data']['text2']}")
+            for key in state["data"]['text2'].keys():
+                print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text2'][key].replace(" ", "") == ''}")
+                if state["data"]['text2'][key].replace(" ", "") == '':
+                    req_data.append(key)
+                
+            request = requester(','.join(req_data))
             _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
         else:
             state = _patch_state(user_id, {
@@ -264,6 +313,11 @@ def _submit_parts(user_id: str, parts: str):
         if freeze != '' and restart != '' and slip != '' and state["data"]["part3"] == False:
             _reply_cb(state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
             return
+        if freeze != '' and restart != '' and slip != '' and state["data"]["part1"] == False and state["data"]["reply1"] == False:
+            print("[INFO] Asking for part 1 data from part 2...")
+            state = _patch_state(user_id, {"data": {"reply1": True}})
+            _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
+            return
         
     if parts == "part3":
         print("[_submit_parts] Processing part 3...")
@@ -276,10 +330,12 @@ def _submit_parts(user_id: str, parts: str):
         })
         if not state["data"]["part1"] and state["data"]["tmp1"] == []:
             print("[INFO] Asking for part 1 data from part 3...")
+            state = _patch_state(user_id, {"data": {"reply1": True}})
             _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
             return
         if not state["data"]["part2"] and state["data"]["tmp2"] == []:
             print("[INFO] Asking for part 2 data from part 3...")
+            state = _patch_state(user_id, {"data": {"reply2": True}})
             _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
             return
 
@@ -302,7 +358,7 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
     t.start()
 
 
-def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 40.0):
+def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 5.0):
     print(f"[_auto_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     old = _timers.get(user_id)
     if old:
@@ -557,7 +613,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
         "reply_token": reply_token
     }
     state = _patch_state(user_id, updates)
-    _schedule_auto_submit(user_id, delay_sec=15.0)
+    _schedule_auto_submit(user_id, delay_sec=10.0)
     
     return None
 
