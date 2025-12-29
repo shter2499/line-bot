@@ -161,7 +161,6 @@ def _auto_reply(user_id: str):
                   "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
         return
 
-    # res = send_message("ห้ามขอรูปซ้ำอีก", state)
     if state.get("img_confirm") and state["data"].get("part1") and state["data"].get("part2"):
         data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
         _summary(state, data)
@@ -242,7 +241,6 @@ def _submit_parts(user_id: str, parts: str):
             })
             if state["data"]["tmp2"]:
                 _submit_parts(user_id, "part2")
-            print(f"[CHECK STATE AFTER PART1] {state}")
             
         if branch != '' and issue != '' and name != '' and phone != '' and state["data"]["part2"] == False and state["data"]["tmp2"] == []:
             _reply_cb(state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
