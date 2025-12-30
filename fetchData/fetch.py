@@ -35,7 +35,7 @@ def fetch(data: list[str]) -> Dict[str, Any]:
 
     try:
         resp = requests.post(
-            REQUESTS_API_URL, headers=DEFAULT_HEADERS, data=inp_data, verify=REQUESTS_VERIFY_SSL)
+            REQUESTS_API_URL, headers=DEFAULT_HEADERS, data=inp_data, verify=False)
     except RequestException as exc:
         return {"ok": False, "status": None, "error": f"request_failed: {exc}"}
     status = resp.status_code
@@ -62,7 +62,7 @@ def uploadFile(img):
     files.append(fileObj)
 
     response = requests.post(url, headers=headers,
-                             files=files, verify=REQUESTS_VERIFY_SSL)
+                             files=files, verify=False)
     print(f"[INFO] Received response with status code {response.status_code}")
     print(f"[INFO] Received response {response.text}")
     if response.status_code == 201:
@@ -162,7 +162,7 @@ def search_duplicate(storeID: str):
 
         params = {'input_data': input_data}
         request = requests.get(url, headers=headers,
-                               params=params, verify=dup_verify_ssl)
+                               params=params, verify=False)
         res = request.json()
         print("=" * 50)
         print(f"[REQUEST] {res}")
