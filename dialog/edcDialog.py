@@ -307,10 +307,12 @@ def _submit_parts(user_id: str, parts: str):
             if state["data"]["tmp1"]:
                 _submit_parts(user_id, "part1")
                 
-        if freeze != '' and restart != '' and slip != '' and state["data"]["part3"] == False:
+        if freeze != '' and restart != '' and slip != '' and state["data"]["part3"] == False and state["image_paths"] == []:
+            print("[INFO] Asking for part 3 data from part 2...")
+            print(f"[CHECK STATE BEFORE PART3] {state}")
             _reply_cb(state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
             return
-        if freeze != '' and restart != '' and slip != '' and state["data"]["part1"] == False and state["data"]["reply1"] == False:
+        if freeze != '' and restart != '' and slip != '' and state["data"]["part1"] == False and state["data"]["reply1"] == False and state["data"]["tmp1"] == []:
             print("[INFO] Asking for part 1 data from part 2...")
             state = _patch_state(user_id, {"data": {"reply1": True}})
             _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
@@ -366,7 +368,7 @@ def _submit_parts(user_id: str, parts: str):
         _summary(user_id, data)
         return
 
-def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
+def _schedule_auto_submit(user_id: str, delay_sec: float = 20.0):
     old = _timers.get(user_id)
     if old:
         try:
@@ -379,7 +381,7 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 5.0):
     t.start()
 
 
-def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 5.0):
+def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 20.0):
     print(f"[_auto_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     old = _timers.get(user_id)
     if old:
@@ -665,7 +667,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
         "reply_token": reply_token
     }
     state = _patch_state(user_id, updates)
-    _schedule_auto_submit(user_id, delay_sec=10.0)
+    _schedule_auto_submit(user_id, delay_sec=20.0)
     
     return None
 
