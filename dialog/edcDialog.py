@@ -340,7 +340,6 @@ def _submit_parts(user_id: str, parts: str):
         if state["data"]["text1"]["branch"] == "" or state["data"]["text1"]["issue"] == "" or state["data"]["text1"]["name"] == "" or state["data"]["text1"]["phone"] == "":
             print("[INFO] Missing part 1 data, cannot proceed to summary.")
             for key in state["data"]['text1'].keys():
-                print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text1'][key].replace(" ", "") == ''}")
                 if state["data"]['text1'][key].replace(" ", "") == '':
                     req_data.append(key)
             request = requester(','.join(req_data))
@@ -349,17 +348,16 @@ def _submit_parts(user_id: str, parts: str):
         if state["data"]["text2"]["freeze"] == "" or state["data"]["text2"]["restart"] == "" or state["data"]["text2"]["slip"] == "":
             print("[INFO] Missing part 2 data, cannot proceed to summary.")
             for key in state["data"]['text2'].keys():
-                print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text2'][key].replace(" ", "") == ''}")
                 if state["data"]['text2'][key].replace(" ", "") == '':
                     req_data.append(key)
             request = requester(','.join(req_data))
             _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
             return
-        print("=" * 50)
-        print(f"[CHECK FINAL STATE PART1] {state['data']['text1']}")
-        print(f"branch == '': {state['data']['text1']['branch'] == ''}, issue == '': {state['data']['text1']['issue'] == ''}, name == '': {state['data']['text1']['name'] == ''}, phone == '': {state['data']['text1']['phone'] == ''}")
-        print(f"[CHECK FINAL STATE PART2] {state['data']['text2']}")
-        print("=" * 50)
+        # print("=" * 50)
+        # print(f"[CHECK FINAL STATE PART1] {state['data']['text1']}")
+        # print(f"branch == '': {state['data']['text1']['branch'] == ''}, issue == '': {state['data']['text1']['issue'] == ''}, name == '': {state['data']['text1']['name'] == ''}, phone == '': {state['data']['text1']['phone'] == ''}")
+        # print(f"[CHECK FINAL STATE PART2] {state['data']['text2']}")
+        # print("=" * 50)
         print("[INFO] Proceeding to summary...")
         data = {
             "part1": state["data"].get("text1"),
@@ -373,7 +371,7 @@ def _submit_parts(user_id: str, parts: str):
     elif state["data"]["tmp2"]:
         _submit_parts(user_id, "part2")
 
-def _schedule_auto_submit(user_id: str, delay_sec: float = 20.0):
+def _schedule_auto_submit(user_id: str, delay_sec: float = 30.0):
     old = _timers.get(user_id)
     if old:
         try:
@@ -386,7 +384,7 @@ def _schedule_auto_submit(user_id: str, delay_sec: float = 20.0):
     t.start()
 
 
-def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 20.0):
+def _auto_submit_parts(user_id: str, parts: str, delay_sec: float = 30.0):
     print(f"[_auto_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     old = _timers.get(user_id)
     if old:
@@ -667,7 +665,7 @@ def process_image_message(user_id: str, image_path: str, reply_token: Optional[s
         "reply_token": reply_token
     }
     state = _patch_state(user_id, updates)
-    _schedule_auto_submit(user_id, delay_sec=20.0)
+    _schedule_auto_submit(user_id, delay_sec=30.0)
     
     return None
 
