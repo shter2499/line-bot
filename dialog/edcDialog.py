@@ -48,6 +48,7 @@ def _default_state(uid: str) -> Dict:
         "img_confirm": False,
         "edc_confirm": False,
         "reply_token": "",
+        "ignore_group":["Cb911b9d7906299c3df675d17ee74f07c","C332593adfb129f5d393a611c170538b1"],
         "data": {
             "part1": False,
             "text1": {"branch": "", "issue": "", "name": "", "phone": ""},
@@ -181,12 +182,18 @@ def _submit_parts(user_id: str, parts: str):
     print(f"[_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     state = _load_state(user_id)
     data = state.get("data")
+    for i in state["ignore_group"]:
+        if i in user_id:
+            print(f"[_submit_parts] Ignored group {i}...")
+            _clear(user_id)
+            return
     # print(f"[CHECK STATE BEFORE SUBMIT] {state['data']['text1']}")
     
     if parts == "part1":
         print("[_submit_parts] Processing part 1...")
         join_tmp = ",".join(data.get("tmp1"))
         format_data = process_part(join_tmp, state)
+        print(f"[CHECK FORMAT DATA PART1] {format_data}")
         branch = format_data.split("รหัสสาขาและชื่อสาขา:")[1].split("\\n")[0].replace(" ", "")
         issue = format_data.split("ปัญหาที่พบ:")[1].split("\\n")[0].replace(" ", "")
         name = format_data.split("ชื่อ:")[1].split("\\n")[0].replace(" ", "")
@@ -265,14 +272,6 @@ def _submit_parts(user_id: str, parts: str):
                               "slip": slip if data["text2"]["slip"] == "" else data["text2"]["slip"]},
                 },
             })
-            # req_data = []
-            # print(f"[CHECK STATE AFTER PART2 RETRY] {state['data']['text2']}")
-            # for key in state["data"]['text2'].keys():
-            #     print(f"[CHECK MISSING DATA] {key} == '': {state['data']['text2'][key].replace(" ", "") == ''}")
-            #     if state["data"]['text2'][key].replace(" ", "") == '':
-            #         req_data.append(key)
-                
-            # request = requester(','.join(req_data))
             _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
         elif (freeze == '' or restart == '' or slip == '') and data["reply2"] == True:
             state = _patch_state(user_id, {
@@ -320,7 +319,7 @@ def _submit_parts(user_id: str, parts: str):
         
     if parts == "part3":
         print("[_submit_parts] Processing part 3...")
-        # print(f"[CHECK STATE BEFORE PART3] {state}")
+        print(f"[CHECK STATE BEFORE PART3] {state["data"]}")
         state = _patch_state(user_id, {
             "step": 0,
             "data": {
@@ -334,7 +333,9 @@ def _submit_parts(user_id: str, parts: str):
             _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
             return
 
+    print(f"[CHECK STATE AFTER SUBMIT PARTS] {state['data']}")
     if state["data"]["part1"] == True and state["data"]["part2"] == True and state["data"]["part3"] == True:
+        print("[INFO] All parts received, proceeding to final submission...")
         req_data = []
         if state["data"]["text1"]["branch"] == "" or state["data"]["text1"]["issue"] == "" or state["data"]["text1"]["name"] == "" or state["data"]["text1"]["phone"] == "":
             print("[INFO] Missing part 1 data, cannot proceed to summary.")
@@ -367,6 +368,10 @@ def _submit_parts(user_id: str, parts: str):
         }
         _summary(user_id, data)
         return
+    elif state["data"]["tmp1"]:
+        _submit_parts(user_id, "part1")
+    elif state["data"]["tmp2"]:
+        _submit_parts(user_id, "part2")
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 20.0):
     old = _timers.get(user_id)
@@ -535,13 +540,7 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
     })
 
     part = json.loads(process_message(lower, state))
-    format_data = json.loads(process_part(lower, state))
-    print("=" * 50)
-    print(f"[handle edc message part] {part}")
-    print(f"[handle edc message test] {format_data}")
-    print(f"[state data] {state['data']}")
-    print("=" * 50)
-    res = ''
+    # res = ''
     
     if part.get("part1"):
         branch = format_data.get("part1").split("รหัสสาขาและชื่อสาขา:")[1].split("\n")[0] 
@@ -603,11 +602,12 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     print("START PROCESS STEP MESSAGE")
-    state = _load_state(user_id)
     raw_text = (text or "").strip()
-    normalized_text = _normalize_branch_in_text(raw_text)
+    normalized_text = _normalize_branch_in_text(user_id, raw_text)
+    state = _load_state(user_id)
     print(f"[PATTERN] normalized_text: {normalized_text}")
-    predic = predict_classifier.classify(normalized_text)
+    # predic = predict_classifier.classify(normalized_text)
+    predic = predict_classifier.classify(raw_text)
     print("=" * 50)
     print(f"[PREDICTION] {predic}")
     print("=" * 50)
@@ -692,7 +692,7 @@ def find_branch(storeID: str):
         return None
 
 
-def _normalize_branch_in_text(text: str) -> str:
+def _normalize_branch_in_text(user_id: str, text: str) -> str:
     """
     ใช้ find_branch หา site_name แล้วแทนลงในข้อความ
 
@@ -709,6 +709,7 @@ def _normalize_branch_in_text(text: str) -> str:
         return text
 
     lines = text.splitlines()
+    _patch_state(user_id, {"data": {"text1": {"branch": site_name,"issue": "", "name": "", "phone": ""}}})
     for i, line in enumerate(lines):
         if "รหัสสาขาและชื่อสาขา:" in line:
             # แทนทั้งบรรทัดให้เป็นชื่อสาขาตาม find_branch
