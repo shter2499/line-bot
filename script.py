@@ -100,8 +100,6 @@ def handle_message(event):
         group_key = getattr(event.source, f"{event.source.type}_id", "")
         user_id = f"{event.source.type}:{group_key}:{getattr(event.source, 'user_id', '')}"
 
-    # print(f"[MSG] From {line_bot_api.get_profile(user_id).display_name} ({event.source.user_id}): {user_message}")
-    print(f"[DEBUG] user_id={user_id}, reply_token={event.reply_token}")
     reply_message = process_step_message(user_id, user_message, reply_token=event.reply_token)
     # Silent mode: only reply when we have something to say
     if reply_message is not None:
@@ -129,14 +127,13 @@ def handle_image(event):
         print(f"[ERROR] image download failed: {e}")
         try:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(
-                text="ไม่สามารถดาวน์โหลดรูปได้ค่ะ ลองใหม่อีกครั้ง"))
+                text=""))
+            print("[INFO] replied empty message after download error")
         except Exception as ee:
             print(f"[ERROR] reply fail after download error: {ee}")
         return
 
-    print(f"[MSG] From {line_bot_api.get_profile(user_id).display_name} ({event.source.user_id})")
-    ack = process_image_message(
-        user_id, file_path, reply_token=event.reply_token)
+    ack = process_image_message(user_id, file_path, reply_token=event.reply_token)
     # If ack is None, we'll reply later (after 5s debounce) using the stored reply_token
     if ack is not None:
         try:

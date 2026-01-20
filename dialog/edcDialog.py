@@ -48,7 +48,7 @@ def _default_state(uid: str) -> Dict:
         "img_confirm": False,
         "edc_confirm": False,
         "reply_token": "",
-        "ignore_group":["Cb911b9d7906299c3df675d17ee74f07c","C332593adfb129f5d393a611c170538b1"],
+        "ignore_group":[""],
         "data": {
             "part1": False,
             "text1": {"branch": "", "issue": "", "name": "", "phone": ""},
@@ -181,6 +181,9 @@ def _submit_parts(user_id: str, parts: str):
     print("=" * 50)
     print(f"[_submit_parts] Triggered for user_id {user_id} and parts {parts}")
     state = _load_state(user_id)
+    if not state or not isinstance(state, dict):
+        print(f"[ERROR] Invalid state for user {user_id}: {state}")
+        return
     data = state.get("data")
     for i in state["ignore_group"]:
         if i in user_id:
@@ -214,6 +217,7 @@ def _submit_parts(user_id: str, parts: str):
                 },
             })
             _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part1"))
+            return
         elif (branch == '' or issue == '' or name == '' or phone == '') and data["reply1"] == True:
             state = _patch_state(user_id, {
                 "step": 0,
@@ -234,6 +238,7 @@ def _submit_parts(user_id: str, parts: str):
                 
             request = requester(','.join(req_data))
             _reply_cb(state.get("reply_token", ""), request)
+            return
         else:
             state = _patch_state(user_id, {
                 "step": 0,
@@ -248,9 +253,11 @@ def _submit_parts(user_id: str, parts: str):
             })
             if state["data"]["tmp2"]:
                 _submit_parts(user_id, "part2")
+                return
             
         if branch != '' and issue != '' and name != '' and phone != '' and state["data"]["part2"] == False and state["data"]["tmp2"] == []:
             _reply_cb(state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
+            return
         
     if parts == "part2":
         print("[_submit_parts] Processing part 2...")
@@ -261,11 +268,12 @@ def _submit_parts(user_id: str, parts: str):
         slip = format_data.split("Ans:")[3].split('"}')[0]
         # print(f"[CHECK PART2] freeze:{ freeze}, restart:{ restart}, slip:{ slip}")
         if (freeze == '' or restart == '' or slip == '') and data["reply2"] == False:
-            _patch_state(user_id, {"step": 0, "data": {"reply2": True}})
+            # _patch_state(user_id, {"step": 0, "data": {"reply2": True}})
             state = _patch_state(user_id, {
                 "step": 0,
                 "data": {
                     "part2": True,
+                    "reply2": True,
                     "tmp2": [],
                     "text2": {"freeze": freeze if data["text2"]["freeze"] == "" else data["text2"]["freeze"], 
                               "restart": restart if data["text2"]["restart"] == "" else data["text2"]["restart"], 
@@ -273,6 +281,7 @@ def _submit_parts(user_id: str, parts: str):
                 },
             })
             _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
+            return
         elif (freeze == '' or restart == '' or slip == '') and data["reply2"] == True:
             state = _patch_state(user_id, {
                 "step": 0,
@@ -292,7 +301,8 @@ def _submit_parts(user_id: str, parts: str):
                     req_data.append(key)
                 
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
+            _reply_cb(state.get("reply_token", ""), request)
+            return
         else:
             state = _patch_state(user_id, {
                 "step": 0,
@@ -305,6 +315,7 @@ def _submit_parts(user_id: str, parts: str):
             })
             if state["data"]["tmp1"]:
                 _submit_parts(user_id, "part1")
+                return
                 
         if freeze != '' and restart != '' and slip != '' and state["data"]["part3"] == False and state["image_paths"] == []:
             print("[INFO] Asking for part 3 data from part 2...")
@@ -343,7 +354,7 @@ def _submit_parts(user_id: str, parts: str):
                 if state["data"]['text1'][key].replace(" ", "") == '':
                     req_data.append(key)
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part1"))
+            _reply_cb(state.get("reply_token", ""), request)
             return
         if state["data"]["text2"]["freeze"] == "" or state["data"]["text2"]["restart"] == "" or state["data"]["text2"]["slip"] == "":
             print("[INFO] Missing part 2 data, cannot proceed to summary.")
@@ -351,7 +362,7 @@ def _submit_parts(user_id: str, parts: str):
                 if state["data"]['text2'][key].replace(" ", "") == '':
                     req_data.append(key)
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
+            _reply_cb(state.get("reply_token", ""), request)
             return
         # print("=" * 50)
         # print(f"[CHECK FINAL STATE PART1] {state['data']['text1']}")
@@ -461,12 +472,12 @@ def _summary(user_id: str, txt: dict) -> str:
             "udf_fields": {
                 "udf_sline_902": phone,
                 "udf_sline_62": "สาขา",
-                # "udf_pick_1801": company,
+                "udf_pick_1801": "Dairy Queen",
                 "udf_pick_8705": "EDC",
                 "udf_pick_9601": "BBL",
                 "udf_sline_611": "N/A",
                 "udf_sline_1507": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else part1.get('branch', '')}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
+                "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
                 "udf_date_68": {
                     "display_value": "2025/11/28 07:35",
                     "value": "1764229800000"
@@ -505,15 +516,19 @@ def _summary(user_id: str, txt: dict) -> str:
                     print(f"[WARN] remove image failed: {e}")
         try:
             ticket_id = resp['data']['request']['id']
-            res_txt = f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}"""
+            # res_txt = f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}"""
+            print("=" * 50)
+            print(f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}""")
+            print("=" * 50)
+            res_txt = f"""เลขงานครับ {ticket_id}"""
             _reply_cb(state.get("reply_token", ""), res_txt)
             _clear(user_id)
         except Exception as e:
             ticket_id = "-"
-            _reply_cb(state.get("reply_token", ""),
-                      "ตอนนี้ระบบมีปัญหาอยู่ รอสักครู่นะครับ")
+            _reply_cb(state.get("reply_token", ""),"รอเลขงานสักครู่นะครับ")
+            print(f"[ERROR] parsing ticket ID failed: {e}")
             return f"[ERROR]: {e}"
-    return "ตอนนี้ระบบบันทึกข้อมูลไม่ได้ กรุณารอสักครู่ครับ"
+    return " "
 
 
 def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[str]:
@@ -602,9 +617,7 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     print("START PROCESS STEP MESSAGE")
     raw_text = (text or "").strip()
     normalized_text = _normalize_branch_in_text(user_id, raw_text)
-    state = _load_state(user_id)
     print(f"[PATTERN] normalized_text: {normalized_text}")
-    # predic = predict_classifier.classify(normalized_text)
     predic = predict_classifier.classify(raw_text)
     print("=" * 50)
     print(f"[PREDICTION] {predic}")

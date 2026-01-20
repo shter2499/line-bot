@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 
 class RedisSession:
-    def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0, password: str | None = None, ttl_seconds: int = 600):
+    def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0, password: str | None = None, ttl_seconds: int = 1800):
         """
         เชื่อมต่อกับ Redis server โดยอ่านค่าจาก Environment Variables ก่อน
         - REDIS_URL: redis://user:pass@host:port/db
