@@ -600,18 +600,6 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
     print(f"[INFO] AI Response: {res}")
     print("=" * 50)
 
-    # ถ้า AI ตอบมาครบทุกส่วนแล้วให้ไปสรุปเลย ไม่ต้องส่งข้อความกลับไปอีก
-    if ("ส่วนที่สอง:" in res) and ("ส่วนที่สาม:" in res):
-        print("[INFO] Proceeding to summary...")
-        _summary(state, res)
-        return None
-
-    # ยังไม่ครบ ให้ส่งข้อความนี้กลับไปถามข้อมูลเพิ่ม แล้ว reset step
-    state["step"] = 0
-    _save_state(user_id, state)
-    # return
-    return res
-
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     print("START PROCESS STEP MESSAGE")
