@@ -4,6 +4,7 @@ State management now uses Redis via session.RedisSession instead of in-memory di
 - Timers are managed in-process per instance (stored outside Redis) as they are not JSON-serializable.
 """
 from __future__ import annotations
+import datetime
 
 from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate
 from dialog.aiDialog import requester, process_message, process_part
@@ -381,6 +382,9 @@ def _submit_parts(user_id: str, parts: str):
         _submit_parts(user_id, "part1")
     elif state["data"]["tmp2"]:
         _submit_parts(user_id, "part2")
+    elif state["image_paths"] == []:
+        _reply_cb(state.get("reply_token", "รบกวนขอรูปภาพประกอบด้วยครับ"), )
+        return
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 30.0):
     old = _timers.get(user_id)
@@ -426,6 +430,11 @@ def _summary(user_id: str, txt: dict) -> str:
     branch = result["site_name"] if result else None
     standard = result["standard"] if result else None
     company = result["company_name"] if result else None
+    th_tz = datetime.timezone(datetime.timedelta(hours=7))
+    now_th = datetime.datetime.now(th_tz)
+    display_time = now_th.strftime("%Y/%m/%d %H:%M")
+    eporch_time = int(now_th.timestamp() * 1000)
+    print(f"[CHECK DISPLAY TIME] {display_time}, eporch_time: {eporch_time}")
     header = parse_header(f"{part2.get('freeze', '')},{part2.get('restart', '')},{part2.get('slip', '')}")
     # dup = search_duplicate(branch)
 
@@ -456,9 +465,12 @@ def _summary(user_id: str, txt: dict) -> str:
     payload = {
         "request": {
             "subject": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
-            "description": f"ชื่อผู้แจ้ง  : {user}<br />เบอร์ติดต่อ : {phone}<br />สถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else part1.get('branch', '')}<br />ปัญหาที่พบ/คำร้องขอ : {detail}<br />SN : N/A<br />Model : Not Specified",
+            "description": f"ชื่อผู้แจ้ง  : {user}<br />เบอร์ติดต่อ : {phone}<br />สถานที่/บริษัท/สาขา พบปัญหา : {branch if branch is not None else part1.get('branch', '')}<br />ปัญหาที่พบ/คำร้องขอ : {'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}<br />SN : N/A<br />Model : Not Specified",
             "requester": {
                 "name": branch if branch is not None else part1.get("branch", "")
+            },
+            "resolution": {
+                "content": "<div>เเนะนำสาขาทำ Memo เเจ้ง เเอเรีย<br /></div>"
             },
             "template": {
                 "id": "5101",
@@ -468,6 +480,45 @@ def _summary(user_id: str, txt: dict) -> str:
             "site": {
                 "id": "302",
                 "name": "Dairy Queen - Standard A"  # ใส่แบบนี้ไปก่อนเพราะยังแยกไม่ได้
+            },
+            "item": {
+                "id": "4501",
+                "name": "EDC – Payment - ITMX"
+            },
+            "priority": {
+                "id": "6",
+                "name": "Severity 2"
+            },
+            "mode": {
+                "id": "4",
+                "name": "Chat"
+            },
+            "status": {
+                "id": "2",
+                "name": "Open",
+                "color": "#0066ff"
+            },
+            "group": {
+                "id": "463",
+                "name": "Service Desk",
+                "site": {
+                        "id": 302
+                }
+            },
+            "category": {
+                "id": "603",
+                "name": "SOFTWARE"
+            },
+            "subcategory": {
+                "id": "3310",
+                "name": "EDC Payment"
+            },
+            "technician": {
+                "id": "5402",
+                "email_id": "Helpdesk@p5-management.com",
+                "name": "Service Desk",
+                "phone": None,
+                "mobile": None
             },
             "udf_fields": {
                 "udf_sline_902": phone,
@@ -479,8 +530,12 @@ def _summary(user_id: str, txt: dict) -> str:
                 "udf_sline_1507": f"{'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}",
                 "udf_mline_4203": f"ชื่อผู้แจ้ง  : {user}\nเบอร์ติดต่อ : {phone}\nสถานที่/บริษัท/สาขา พบปัญหา : {'POS#1 ชำระผ่านบัตรเครดิตแล้วบิลไม่ตัด' if cr_test.get('prediction') == 'cr' else f'POS#1 Promptpay ชำระสำเร็จแล้วบิลไม่ตัดที่ POS({header})'}\nปัญหาที่พบ/คำร้องขอ : {detail}\nSN : N/A\nModel : Not Specified",
                 "udf_date_68": {
-                    "display_value": "2025/11/28 07:35",
-                    "value": "1764229800000"
+                    "display_value": display_time,
+                    "value": eporch_time
+                },
+                "udf_date_8101": {
+                    "display_value": display_time,
+                    "value": eporch_time
                 },
                 "udf_pick_2115": {
                     "name": "Service Desk",
@@ -499,13 +554,13 @@ def _summary(user_id: str, txt: dict) -> str:
         }
     }
 
-    # print("=" * 50)
-    # print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
-    # print("=" * 50)
+    print("=" * 50)
+    print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)}")
+    print("=" * 50)
 
     print("[INFO] Sending ticket creation request...")
-    resp = fetch(payload)
-    # resp = {"ok": False}
+    # resp = fetch(payload)
+    resp = {"ok": False}
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -603,6 +658,7 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
 
 def process_step_message(user_id: str, text: str, reply_token: Optional[str] = None) -> str:
     print("START PROCESS STEP MESSAGE")
+    state = _load_state(user_id)
     raw_text = (text or "").strip()
     normalized_text = _normalize_branch_in_text(user_id, raw_text)
     print(f"[PATTERN] normalized_text: {normalized_text}")
