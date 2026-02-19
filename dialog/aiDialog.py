@@ -1,9 +1,16 @@
 import ollama
 import time
 import os
+import threading
+
+try:
+    from cuda_queue import get_cuda_queue_manager
+except ImportError:
+    get_cuda_queue_manager = None
 
 
-def send_message(message: str, state: dict[str, any]) -> str:
+def _send_message_internal(message: str, state: dict[str, any]) -> str:
+    """Internal function that performs actual Ollama chat"""
     try:
         print('[Send request to send_message AI]')
         system_prompt = """ 
@@ -78,7 +85,43 @@ System:
         print(" ⚠️ " * 20)
         return
 
-def process_message(message: str, state: dict[str, any]) -> str:
+
+def send_message(message: str, state: dict[str, any]) -> str:
+    """Wrapper function that uses CUDA queue for send_message"""
+    if get_cuda_queue_manager is None:
+        return _send_message_internal(message, state)
+    
+    result = [None]
+    error = [None]
+    event = threading.Event()
+    
+    def callback(res):
+        result[0] = res
+        event.set()
+    
+    def error_callback(e):
+        error[0] = e
+        event.set()
+    
+    queue_manager = get_cuda_queue_manager()
+    queue_manager.submit_task(
+        _send_message_internal,
+        message, state,
+        callback=callback,
+        error_callback=error_callback
+    )
+    
+    if event.wait(timeout=60):
+        if error[0]:
+            raise error[0]
+        return result[0]
+    else:
+        error_msg = "[CUDA Queue] send_message timeout after 60s - GPU may be overloaded"
+        print(error_msg)
+        raise TimeoutError(error_msg)
+
+def _process_message_internal(message: str, state: dict[str, any]) -> str:
+    """Internal function that performs actual Ollama chat for process_message"""
     state_data = state.get('data') or []
     try:
         print('[process_message by AI]')
@@ -198,7 +241,43 @@ Ans:ไม่
         return
 
 
-def process_part(message: str, state: dict[str, any]) -> str:
+def process_message(message: str, state: dict[str, any]) -> str:
+    """Wrapper function that uses CUDA queue for process_message"""
+    if get_cuda_queue_manager is None:
+        return _process_message_internal(message, state)
+    
+    result = [None]
+    error = [None]
+    event = threading.Event()
+    
+    def callback(res):
+        result[0] = res
+        event.set()
+    
+    def error_callback(e):
+        error[0] = e
+        event.set()
+    
+    queue_manager = get_cuda_queue_manager()
+    queue_manager.submit_task(
+        _process_message_internal,
+        message, state,
+        callback=callback,
+        error_callback=error_callback
+    )
+    
+    if event.wait(timeout=60):
+        if error[0]:
+            raise error[0]
+        return result[0]
+    else:
+        error_msg = "[CUDA Queue] process_message timeout after 60s - GPU may be overloaded"
+        print(error_msg)
+        raise TimeoutError(error_msg)
+
+
+def _process_part_internal(message: str, state: dict[str, any]) -> str:
+    """Internal function that performs actual Ollama chat for process_part"""
     state_data = state.get('data') or []
     try:
         print('[process_message by AI]')
@@ -272,7 +351,43 @@ Ans A"
         return
 
 
-def requester(data: str) -> str:
+def process_part(message: str, state: dict[str, any]) -> str:
+    """Wrapper function that uses CUDA queue for process_part"""
+    if get_cuda_queue_manager is None:
+        return _process_part_internal(message, state)
+    
+    result = [None]
+    error = [None]
+    event = threading.Event()
+    
+    def callback(res):
+        result[0] = res
+        event.set()
+    
+    def error_callback(e):
+        error[0] = e
+        event.set()
+    
+    queue_manager = get_cuda_queue_manager()
+    queue_manager.submit_task(
+        _process_part_internal,
+        message, state,
+        callback=callback,
+        error_callback=error_callback
+    )
+    
+    if event.wait(timeout=60):
+        if error[0]:
+            raise error[0]
+        return result[0]
+    else:
+        error_msg = "[CUDA Queue] process_part timeout after 60s - GPU may be overloaded"
+        print(error_msg)
+        raise TimeoutError(error_msg)
+
+
+def _requester_internal(data: str) -> str:
+    """Internal function that performs actual Ollama chat for requester"""
     try:
         print('[Send request to requester AI]')
         start = time.perf_counter()
@@ -332,5 +447,41 @@ def requester(data: str) -> str:
         print(f"[ERROR]: {e}")
         print(" ⚠️ " * 20)
         return
+
+
+def requester(data: str) -> str:
+    """Wrapper function that uses CUDA queue for requester"""
+    if get_cuda_queue_manager is None:
+        return _requester_internal(data)
+    
+    result = [None]
+    error = [None]
+    event = threading.Event()
+    
+    def callback(res):
+        result[0] = res
+        event.set()
+    
+    def error_callback(e):
+        error[0] = e
+        event.set()
+    
+    queue_manager = get_cuda_queue_manager()
+    queue_manager.submit_task(
+        _requester_internal,
+        data,
+        callback=callback,
+        error_callback=error_callback
+    )
+    
+    if event.wait(timeout=60):
+        if error[0]:
+            raise error[0]
+        return result[0]
+    else:
+        error_msg = "[CUDA Queue] requester timeout after 60s - GPU may be overloaded"
+        print(error_msg)
+        raise TimeoutError(error_msg)
+
 
 __all__ = ["send_message", "process_message", "process_part", "requester"]

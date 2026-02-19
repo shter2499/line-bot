@@ -3,6 +3,7 @@ import torch
 import os
 import json
 import numpy as np
+import threading
 
 MODEL_DIR = "./classifier-edc"
 if not os.path.isdir(MODEL_DIR):
@@ -25,8 +26,19 @@ else:
 label2id = {v: k for k, v in id2label.items()}
 PRINTER_FORCE_OTHER = {"ปริ้นเตอร์", "ปริ๊นเตอร์", "printer"}
 
+# CUDA Queue support
+_cuda_queue_enabled = True
+try:
+    from cuda_queue import get_cuda_queue_manager
+    _queue_manager = get_cuda_queue_manager()
+except ImportError:
+    _cuda_queue_enabled = False
+    _queue_manager = None
+    print("[predict_classifier] CUDA queue not available, running directly")
 
-def classify(text: str):
+
+def _classify_internal(text: str):
+    """Internal classification function that actually runs the model"""
     # Heuristic override: if mentions 'ปริ้นเตอร์' → force OTHER
     low = text.split('ปัญหาที่พบ:')[1].split("\n")[0] if 'ปัญหาที่พบ:' in text else text.lower()
     
@@ -54,6 +66,56 @@ def classify(text: str):
         "probabilities": {id2label[i]: float(p) for i, p in enumerate(probs)},
         "prediction": id2label[pred_id],
     }
+
+
+def classify(text: str):
+    """
+    Classify text using EDC classifier
+    Uses CUDA queue if available to manage GPU usage
+    """
+    if not _cuda_queue_enabled or _queue_manager is None:
+        # No queue available, run directly
+        return _classify_internal(text)
+    
+    # Use CUDA queue - submit task and wait for result
+    result_container = {'result': None, 'event': threading.Event()}
+    
+    def callback(result):
+        result_container['result'] = result
+        result_container['event'].set()
+    
+    def error_callback(error):
+        print(f"[predict_classifier] Error in queue: {error}")
+        result_container['result'] = {
+            "text": text,
+            "probabilities": {},
+            "prediction": "other",
+            "error": str(error)
+        }
+        result_container['event'].set()
+    
+    _queue_manager.submit_task(
+        _classify_internal,
+        text,
+        callback=callback,
+        error_callback=error_callback
+    )
+    
+    # Wait for result (with timeout)
+    result_container['event'].wait(timeout=30.0)
+    
+    if result_container['result'] is None:
+        # Timeout - return default
+        print(f"[predict_classifier] Timeout waiting for result")
+        return {
+            "text": text,
+            "probabilities": {},
+            "prediction": "other",
+            "error": "timeout"
+        }
+    
+    return result_container['result']
+
 
 __all__ = [
     "classify",

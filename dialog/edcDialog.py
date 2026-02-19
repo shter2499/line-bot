@@ -18,6 +18,7 @@ import re
 import time
 import threading
 import json
+import requests
 from typing import Dict, Optional, Callable
 
 
@@ -128,6 +129,22 @@ def set_reply_callback(cb: Callable[[str, str], None]) -> None:
     _reply_cb = cb
 
 
+def _send_bot_response(customer_id: str, reply_token: str, text: str) -> None:
+    """Send bot response to external API at localhost:3001/api/bot_response."""
+    try:
+        url = "http://localhost:3001/api/bot_response"
+        payload = {
+            "customer_id": customer_id,
+            "reply_token": reply_token,
+            "text": text
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print(f"[_send_bot_response] Success: {response.status_code}")
+    except Exception as e:
+        print(f"[ERROR] _send_bot_response failed: {e}")
+
+
 def _start(uid: str):
     st = _default_state(uid)
     _save_state(uid, st)
@@ -159,7 +176,7 @@ def _auto_reply(user_id: str):
         image_path = state.get("image_paths")[0]
         history.append(image_path)
         state = _patch_state(user_id, {"history": history})
-        _reply_cb(state.get("reply_token", ""),
+        _send_bot_response(user_id, state.get("reply_token", ""),
                   "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
         return
 
@@ -169,12 +186,12 @@ def _auto_reply(user_id: str):
     else:
         if state["data"]["part1"] == False:
             reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
-            _reply_cb(state.get("reply_token", ""), reply)
+            _send_bot_response(user_id, state.get("reply_token", ""), reply)
             return
         
         if state["data"]["part2"] == False:
             reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:"
-            _reply_cb(state.get("reply_token", ""), reply)
+            _send_bot_response(user_id, state.get("reply_token", ""), reply)
             return
     
 
@@ -217,7 +234,7 @@ def _submit_parts(user_id: str, parts: str):
                                 "phone": phone if data['text1']['phone'].replace(" ", "") == "" else data['text1']['phone'].replace(" ", "")},
                 },
             })
-            _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part1"))
+            _send_bot_response(user_id, state.get("reply_token", ""), json.loads(format_data).get("part1"))
             return
         elif (branch == '' or issue == '' or name == '' or phone == '') and data["reply1"] == True:
             state = _patch_state(user_id, {
@@ -238,7 +255,7 @@ def _submit_parts(user_id: str, parts: str):
                     req_data.append(key)
                 
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), request)
+            _send_bot_response(user_id, state.get("reply_token", ""), request)
             return
         else:
             state = _patch_state(user_id, {
@@ -257,7 +274,9 @@ def _submit_parts(user_id: str, parts: str):
                 return
             
         if branch != '' and issue != '' and name != '' and phone != '' and state["data"]["part2"] == False and state["data"]["tmp2"] == []:
-            _reply_cb(state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
+            print("[INFO] Asking for part 2 data from part 1...")
+            state = _patch_state(user_id, {"data": {"reply2": True}})
+            _send_bot_response(user_id, state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
             return
         
     if parts == "part2":
@@ -281,7 +300,7 @@ def _submit_parts(user_id: str, parts: str):
                               "slip": slip if data["text2"]["slip"] == "" else data["text2"]["slip"]},
                 },
             })
-            _reply_cb(state.get("reply_token", ""), json.loads(format_data).get("part2"))
+            _send_bot_response(user_id, state.get("reply_token", ""), json.loads(format_data).get("part2"))
             return
         elif (freeze == '' or restart == '' or slip == '') and data["reply2"] == True:
             state = _patch_state(user_id, {
@@ -302,7 +321,7 @@ def _submit_parts(user_id: str, parts: str):
                     req_data.append(key)
                 
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), request)
+            _send_bot_response(user_id, state.get("reply_token", ""), request)
             return
         else:
             state = _patch_state(user_id, {
@@ -321,12 +340,12 @@ def _submit_parts(user_id: str, parts: str):
         if freeze != '' and restart != '' and slip != '' and state["data"]["part3"] == False and state["image_paths"] == []:
             print("[INFO] Asking for part 3 data from part 2...")
             print(f"[CHECK STATE BEFORE PART3] {state}")
-            _reply_cb(state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
+            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
             return
         if freeze != '' and restart != '' and slip != '' and state["data"]["part1"] == False and state["data"]["reply1"] == False and state["data"]["tmp1"] == []:
             print("[INFO] Asking for part 1 data from part 2...")
             state = _patch_state(user_id, {"data": {"reply1": True}})
-            _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
+            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
             return
         
     if parts == "part3":
@@ -339,10 +358,14 @@ def _submit_parts(user_id: str, parts: str):
             },
         })
         if not state["data"]["part1"] and state["data"]["tmp1"] == []:
-            _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
+            print("[INFO] Asking for part 1 data from part 3...")
+            state = _patch_state(user_id, {"data": {"reply1": True}})
+            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:")
             return
         if not state["data"]["part2"] and state["data"]["tmp2"] == []:
-            _reply_cb(state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
+            print("[INFO] Asking for part 2 data from part 3...")
+            state = _patch_state(user_id, {"data": {"reply2": True}})
+            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอข้อมูลตามนี้หน่อยครับ\nเครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
             return
 
     print(f"[CHECK STATE AFTER SUBMIT PARTS] {state['data']}")
@@ -355,7 +378,7 @@ def _submit_parts(user_id: str, parts: str):
                 if state["data"]['text1'][key].replace(" ", "") == '':
                     req_data.append(key)
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), request)
+            _send_bot_response(user_id, state.get("reply_token", ""), request)
             return
         if state["data"]["text2"]["freeze"] == "" or state["data"]["text2"]["restart"] == "" or state["data"]["text2"]["slip"] == "":
             print("[INFO] Missing part 2 data, cannot proceed to summary.")
@@ -363,7 +386,7 @@ def _submit_parts(user_id: str, parts: str):
                 if state["data"]['text2'][key].replace(" ", "") == '':
                     req_data.append(key)
             request = requester(','.join(req_data))
-            _reply_cb(state.get("reply_token", ""), request)
+            _send_bot_response(user_id, state.get("reply_token", ""), request)
             return
         # print("=" * 50)
         # print(f"[CHECK FINAL STATE PART1] {state['data']['text1']}")
@@ -383,7 +406,7 @@ def _submit_parts(user_id: str, parts: str):
     elif state["data"]["tmp2"]:
         _submit_parts(user_id, "part2")
     elif state["image_paths"] == []:
-        _reply_cb(state.get("reply_token", "รบกวนขอรูปภาพประกอบด้วยครับ"), )
+        _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
         return
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 30.0):
@@ -576,11 +599,11 @@ def _summary(user_id: str, txt: dict) -> str:
             print(f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}""")
             print("=" * 50)
             res_txt = f"""เลขงานครับ {ticket_id}"""
-            _reply_cb(state.get("reply_token", ""), res_txt)
+            _send_bot_response(user_id, state.get("reply_token", ""), res_txt)
             _clear(user_id)
         except Exception as e:
             ticket_id = "-"
-            _reply_cb(state.get("reply_token", ""),"รอเลขงานสักครู่นะครับ")
+            _send_bot_response(user_id, state.get("reply_token", ""),"รอเลขงานสักครู่นะครับ")
             print(f"[ERROR] parsing ticket ID failed: {e}")
             return f"[ERROR]: {e}"
     return " "
@@ -682,7 +705,8 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
     # คำสั่งยกเลิก flow
     if lower == "ยกเลิก":
         _clear(user_id)
-        return "ยกเลิกเซสชันแล้ว"
+        _send_bot_response(user_id, reply_token, "ยกเลิกเซสชันแล้ว")
+        # return "ยกเลิกเซสชันแล้ว"
 
     prediction = predic.get("prediction")
     reply_text: Optional[str] = None
@@ -692,11 +716,9 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
         print("[INFO] Handling EDC message..." )
         reply_text = _handle_edc_message(user_id, lower, reply_token)
     elif prediction == "other":
-        reply_text = ""
-
-    # ส่งข้อความกลับ (ถ้ามี callback และกำหนด reply_text มา)
-    if reply_token and _reply_cb and reply_text is not None:
-        _reply_cb(reply_token, reply_text)
+        # ไม่ใช่ EDC ให้ตอบเป็นข้อความว่าง
+        print("[INFO] Non-EDC message received, sending empty response." )
+        _send_bot_response(user_id, reply_token, " ")
 
     return None
 

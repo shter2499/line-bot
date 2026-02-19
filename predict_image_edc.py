@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Dict
 
@@ -48,8 +49,18 @@ _TRANSFORM = transforms.Compose([
     ),
 ])
 
+# CUDA Queue support
+_cuda_queue_enabled = True
+try:
+    from cuda_queue import get_cuda_queue_manager
+    _queue_manager = get_cuda_queue_manager()
+except ImportError:
+    _cuda_queue_enabled = False
+    _queue_manager = None
+    print("[predict_image_edc] CUDA queue not available, running directly")
 
-def classify_image(image_path: str) -> Dict[str, object]:
+
+def _classify_image_internal(image_path: str) -> Dict[str, object]:
     """จำแนกรูปว่าเป็นคลาสใด (เช่น edc / not_edc).
 
     Returns dict:
@@ -77,6 +88,55 @@ def classify_image(image_path: str) -> Dict[str, object]:
         "probabilities": {cls: float(p) for cls, p in zip(CLASSES, probs)},
         "prediction": pred_label,
     }
+
+
+def classify_image(image_path: str) -> Dict[str, object]:
+    """
+    Classify image using EDC image classifier
+    Uses CUDA queue if available to manage GPU usage
+    """
+    if not _cuda_queue_enabled or _queue_manager is None:
+        # No queue available, run directly
+        return _classify_image_internal(image_path)
+    
+    # Use CUDA queue - submit task and wait for result
+    result_container = {'result': None, 'event': threading.Event()}
+    
+    def callback(result):
+        result_container['result'] = result
+        result_container['event'].set()
+    
+    def error_callback(error):
+        print(f"[predict_image_edc] Error in queue: {error}")
+        result_container['result'] = {
+            "path": image_path,
+            "probabilities": {},
+            "prediction": "not_edc",
+            "error": str(error)
+        }
+        result_container['event'].set()
+    
+    _queue_manager.submit_task(
+        _classify_image_internal,
+        image_path,
+        callback=callback,
+        error_callback=error_callback
+    )
+    
+    # Wait for result (with timeout)
+    result_container['event'].wait(timeout=30.0)
+    
+    if result_container['result'] is None:
+        # Timeout - return default
+        print(f"[predict_image_edc] Timeout waiting for result")
+        return {
+            "path": image_path,
+            "probabilities": {},
+            "prediction": "not_edc",
+            "error": "timeout"
+        }
+    
+    return result_container['result']
 
 
 __all__ = ["classify_image"]
