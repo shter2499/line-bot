@@ -11,7 +11,7 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage
 
 from dialog.edcDialog import process_step_message, process_image_message, set_reply_callback
-from cuda_queue import get_cuda_queue_manager
+# CUDA queue removed
 
 load_dotenv()
 
@@ -432,19 +432,12 @@ def _not_found(e):  # ช่วยชี้ว่าถูกยิง path ผ�
     return "Not Found", 404
 
 if __name__ == "__main__":
-    # Start CUDA queue manager worker thread
-    cuda_manager = get_cuda_queue_manager()
-    cuda_manager.start()
-    print("CUDA queue manager started")
+    # CUDA queue functionality removed for performance improvement
+    print("Starting without CUDA queue management")
     
     # For local development only; production should use Gunicorn
     port = int(os.environ.get("PORT", "8000"))
     debug = bool(os.environ.get("FLASK_DEBUG"))
     print(f"Starting dev server on port {port} (debug={debug}) ...")
     
-    try:
-        app.run(host="0.0.0.0", port=port, debug=debug)
-    finally:
-        # Stop queue manager on shutdown
-        cuda_manager.stop()
-        print("CUDA queue manager stopped")
+    app.run(host="0.0.0.0", port=port, debug=debug)

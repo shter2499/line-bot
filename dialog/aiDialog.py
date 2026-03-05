@@ -3,10 +3,8 @@ import time
 import os
 import threading
 
-try:
-    from cuda_queue import get_cuda_queue_manager
-except ImportError:
-    get_cuda_queue_manager = None
+# CUDA queue removed - running directly
+print("[aiDialog] Running directly without CUDA queue")
 
 
 def _send_message_internal(message: str, state: dict[str, any]) -> str:
@@ -87,38 +85,8 @@ System:
 
 
 def send_message(message: str, state: dict[str, any]) -> str:
-    """Wrapper function that uses CUDA queue for send_message"""
-    if get_cuda_queue_manager is None:
-        return _send_message_internal(message, state)
-    
-    result = [None]
-    error = [None]
-    event = threading.Event()
-    
-    def callback(res):
-        result[0] = res
-        event.set()
-    
-    def error_callback(e):
-        error[0] = e
-        event.set()
-    
-    queue_manager = get_cuda_queue_manager()
-    queue_manager.submit_task(
-        _send_message_internal,
-        message, state,
-        callback=callback,
-        error_callback=error_callback
-    )
-    
-    if event.wait(timeout=60):
-        if error[0]:
-            raise error[0]
-        return result[0]
-    else:
-        error_msg = "[CUDA Queue] send_message timeout after 60s - GPU may be overloaded"
-        print(error_msg)
-        raise TimeoutError(error_msg)
+    """Wrapper function - runs directly without CUDA queue"""
+    return _send_message_internal(message, state)
 
 def _process_message_internal(message: str, state: dict[str, any]) -> str:
     """Internal function that performs actual Ollama chat for process_message"""
@@ -242,38 +210,8 @@ Ans:ไม่
 
 
 def process_message(message: str, state: dict[str, any]) -> str:
-    """Wrapper function that uses CUDA queue for process_message"""
-    if get_cuda_queue_manager is None:
-        return _process_message_internal(message, state)
-    
-    result = [None]
-    error = [None]
-    event = threading.Event()
-    
-    def callback(res):
-        result[0] = res
-        event.set()
-    
-    def error_callback(e):
-        error[0] = e
-        event.set()
-    
-    queue_manager = get_cuda_queue_manager()
-    queue_manager.submit_task(
-        _process_message_internal,
-        message, state,
-        callback=callback,
-        error_callback=error_callback
-    )
-    
-    if event.wait(timeout=60):
-        if error[0]:
-            raise error[0]
-        return result[0]
-    else:
-        error_msg = "[CUDA Queue] process_message timeout after 60s - GPU may be overloaded"
-        print(error_msg)
-        raise TimeoutError(error_msg)
+    """Wrapper function - runs directly without CUDA queue"""
+    return _process_message_internal(message, state)
 
 
 def _process_part_internal(message: str, state: dict[str, any]) -> str:
@@ -352,38 +290,8 @@ Ans A"
 
 
 def process_part(message: str, state: dict[str, any]) -> str:
-    """Wrapper function that uses CUDA queue for process_part"""
-    if get_cuda_queue_manager is None:
-        return _process_part_internal(message, state)
-    
-    result = [None]
-    error = [None]
-    event = threading.Event()
-    
-    def callback(res):
-        result[0] = res
-        event.set()
-    
-    def error_callback(e):
-        error[0] = e
-        event.set()
-    
-    queue_manager = get_cuda_queue_manager()
-    queue_manager.submit_task(
-        _process_part_internal,
-        message, state,
-        callback=callback,
-        error_callback=error_callback
-    )
-    
-    if event.wait(timeout=60):
-        if error[0]:
-            raise error[0]
-        return result[0]
-    else:
-        error_msg = "[CUDA Queue] process_part timeout after 60s - GPU may be overloaded"
-        print(error_msg)
-        raise TimeoutError(error_msg)
+    """Wrapper function - runs directly without CUDA queue"""
+    return _process_part_internal(message, state)
 
 
 def _requester_internal(data: str) -> str:
@@ -450,38 +358,8 @@ def _requester_internal(data: str) -> str:
 
 
 def requester(data: str) -> str:
-    """Wrapper function that uses CUDA queue for requester"""
-    if get_cuda_queue_manager is None:
-        return _requester_internal(data)
-    
-    result = [None]
-    error = [None]
-    event = threading.Event()
-    
-    def callback(res):
-        result[0] = res
-        event.set()
-    
-    def error_callback(e):
-        error[0] = e
-        event.set()
-    
-    queue_manager = get_cuda_queue_manager()
-    queue_manager.submit_task(
-        _requester_internal,
-        data,
-        callback=callback,
-        error_callback=error_callback
-    )
-    
-    if event.wait(timeout=60):
-        if error[0]:
-            raise error[0]
-        return result[0]
-    else:
-        error_msg = "[CUDA Queue] requester timeout after 60s - GPU may be overloaded"
-        print(error_msg)
-        raise TimeoutError(error_msg)
+    """Wrapper function - runs directly without CUDA queue"""
+    return _requester_internal(data)
 
 
 __all__ = ["send_message", "process_message", "process_part", "requester"]

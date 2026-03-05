@@ -67,7 +67,7 @@ model_name = "distilbert-base-multilingual-cased"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 def tokenize_fn(batch: Dict[str, List[str]]):
-    return tokenizer(batch["text"], padding=True, truncation=True, max_length=192)
+    return tokenizer(batch["text"], padding="max_length", truncation=True, max_length=192)
 
 train_tok = train_ds.map(tokenize_fn, batched=True)
 eval_tok = eval_ds.map(tokenize_fn, batched=True)
@@ -105,7 +105,6 @@ trainer = Trainer(
     args=args,
     train_dataset=train_tok,
     eval_dataset=eval_tok,
-    tokenizer=tokenizer,
     compute_metrics=compute_metrics,
 )
 

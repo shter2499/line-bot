@@ -130,17 +130,21 @@ def set_reply_callback(cb: Callable[[str, str], None]) -> None:
 
 
 def _send_bot_response(customer_id: str, reply_token: str, text: str) -> None:
-    """Send bot response to external API at localhost:3001/api/bot_response."""
+    """Send bot response to external API running on host machine."""
     try:
-        url = "http://localhost:3001/api/bot_response"
+        # Use environment variable or default to host.docker.internal (for Docker)
+        bot_api_url = os.getenv("BOT_RESPONSE_API_URL", "http://host.docker.internal:3001/api/bot_response")
+        
         payload = {
             "customer_id": customer_id,
             "reply_token": reply_token,
             "text": text
         }
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(bot_api_url, json=payload, timeout=10)
         response.raise_for_status()
         print(f"[_send_bot_response] Success: {response.status_code}")
+    except requests.exceptions.ConnectionError:
+        print(f"[WARNING] Bot response API unavailable at {bot_api_url}. Continuing without sending response.")
     except Exception as e:
         print(f"[ERROR] _send_bot_response failed: {e}")
 
@@ -181,8 +185,12 @@ def _auto_reply(user_id: str):
         return
 
     if state.get("img_confirm") and state["data"].get("part1") and state["data"].get("part2"):
-        data = f"ส่วนที่หนึ่ง: {state['data'].get('text1')}\nส่วนที่สอง: {state['data'].get('text2')}\nส่วนที่สาม: มีรูปภาพประกอบแล้ว "
-        _summary(state, data)
+        data = {
+            "part1": state["data"].get("text1"),
+            "part2": state["data"].get("text2"),
+            "part3": "มีรูปภาพประกอบแล้ว"
+        }
+        _summary(user_id, data)
     else:
         if state["data"]["part1"] == False:
             reply = "รบกวนขอข้อมูลตามนี้หน่อยครับ\nรหัสสาขาและชื่อสาขา:\nปัญหาที่พบ:\nชื่อ:\nเบอร์ติดต่อ:"
@@ -215,10 +223,16 @@ def _submit_parts(user_id: str, parts: str):
         join_tmp = ",".join(data.get("tmp1"))
         format_data = process_part(join_tmp, state)
         print(f"[CHECK FORMAT DATA PART1] {format_data}")
-        branch = format_data.split("รหัสสาขาและชื่อสาขา:")[1].split("\\n")[0].replace(" ", "")
-        issue = format_data.split("ปัญหาที่พบ:")[1].split("\\n")[0].replace(" ", "")
-        name = format_data.split("ชื่อ:")[1].split("\\n")[0].replace(" ", "")
-        phone = format_data.split("เบอร์ติดต่อ:")[1].split('"')[0].replace(" ", "")
+        try:
+            parsed_data = json.loads(format_data)
+            part1_content = parsed_data.get("part1", "")
+            branch = part1_content.split("รหัสสาขาและชื่อสาขา:")[1].split("\\n")[0].replace(" ", "") if "รหัสสาขาและชื่อสาขา:" in part1_content else ""
+            issue = part1_content.split("ปัญหาที่พบ:")[1].split("\\n")[0].replace(" ", "") if "ปัญหาที่พบ:" in part1_content else ""
+            name = part1_content.split("ชื่อ:")[1].split("\\n")[0].replace(" ", "") if "ชื่อ:" in part1_content else ""
+            phone = part1_content.split("เบอร์ติดต่อ:")[1].split('"')[0].replace(" ", "") if "เบอร์ติดต่อ:" in part1_content else ""
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            print(f"[ERROR] Failed to parse part1 format_data: {e}")
+            branch = issue = name = phone = ""
         # print(f"[CHECK PART1] branch({branch}) == '':{ branch == ''},\nissue({issue}) == '':{ issue == ''},\nname({name}) == '':{ name == ''},\nphone({phone}) == '':{ phone == ''},\nreply1:{ data['reply1'] }")
 
         if (branch == '' or issue == '' or name == '' or phone == '') and data["reply1"] == False:
@@ -283,9 +297,16 @@ def _submit_parts(user_id: str, parts: str):
         print("[_submit_parts] Processing part 2...")
         join_tmp = ",".join(data.get("tmp2"))
         format_data = process_part(join_tmp, state)
-        freeze = format_data.split("Ans:")[1].split("\\n")[0]
-        restart = format_data.split("Ans:")[2].split("\\n")[0]
-        slip = format_data.split("Ans:")[3].split('"}')[0]
+        try:
+            parsed_data = json.loads(format_data)
+            part2_content = parsed_data.get("part2", "")
+            ans_parts = part2_content.split("Ans:")
+            freeze = ans_parts[1].split("\\n")[0] if len(ans_parts) > 1 else ""
+            restart = ans_parts[2].split("\\n")[0] if len(ans_parts) > 2 else ""
+            slip = ans_parts[3].split('"')[0] if len(ans_parts) > 3 else ""
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            print(f"[ERROR] Failed to parse part2 format_data: {e}")
+            freeze = restart = slip = ""
         # print(f"[CHECK PART2] freeze:{ freeze}, restart:{ restart}, slip:{ slip}")
         if (freeze == '' or restart == '' or slip == '') and data["reply2"] == False:
             # _patch_state(user_id, {"step": 0, "data": {"reply2": True}})
@@ -350,7 +371,7 @@ def _submit_parts(user_id: str, parts: str):
         
     if parts == "part3":
         print("[_submit_parts] Processing part 3...")
-        print(f"[CHECK STATE BEFORE PART3] {state["data"]}")
+        print(f"[CHECK STATE BEFORE PART3] {state['data']}")
         state = _patch_state(user_id, {
             "step": 0,
             "data": {
@@ -458,7 +479,7 @@ def _summary(user_id: str, txt: dict) -> str:
     display_time = now_th.strftime("%Y/%m/%d %H:%M")
     eporch_time = int(now_th.timestamp() * 1000)
     print(f"[CHECK DISPLAY TIME] {display_time}, eporch_time: {eporch_time}")
-    header = parse_header(f"{part2.get('freeze', '')},{part2.get('restart', '')},{part2.get('slip', '')}")
+    header = parse_header(f"{part2.get('freeze', '')},TIME ,App ,{part2.get('restart', '')},{part2.get('slip', '')}")
     # dup = search_duplicate(branch)
 
     try:
@@ -582,8 +603,8 @@ def _summary(user_id: str, txt: dict) -> str:
     print("=" * 50)
 
     print("[INFO] Sending ticket creation request...")
-    # resp = fetch(payload)
-    resp = {"ok": False}
+    resp = fetch(payload)
+    # resp = {"ok": False}
 
     if resp.get("ok"):
         for img_path in image_paths:
@@ -594,9 +615,9 @@ def _summary(user_id: str, txt: dict) -> str:
                     print(f"[WARN] remove image failed: {e}")
         try:
             ticket_id = resp['data']['request']['id']
-            # res_txt = f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}"""
+            # res_txt = f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else part1.get('branch', '')}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}"""
             print("=" * 50)
-            print(f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else txt.split("ส่วนที่หนึ่ง:")[1].split(',')[0]}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}""")
+            print(f"""Ticket {ticket_id} โดยมีรายละเอียดดังนี้\nชื่อสาขาหรือรหัสสาขา: {branch if branch is not None else part1.get('branch', '')}\nปัญหาที่พบ: {detail}\nชื่อ: {user}\nเบอร์โทรติดต่อ: {phone}""")
             print("=" * 50)
             res_txt = f"""เลขงานครับ {ticket_id}"""
             _send_bot_response(user_id, state.get("reply_token", ""), res_txt)

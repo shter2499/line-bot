@@ -3,7 +3,6 @@ import torch
 import os
 import json
 import numpy as np
-import threading
 
 MODEL_DIR = "./classifier-cr"
 if not os.path.isdir(MODEL_DIR):
@@ -26,15 +25,8 @@ else:
 label2id = {v: k for k, v in id2label.items()}
 PROMPTPAY_FORCE_OTHER = {"พพ", "พร้อมเพย์", "promptpay"}
 
-# CUDA Queue support
-_cuda_queue_enabled = True
-try:
-    from cuda_queue import get_cuda_queue_manager
-    _queue_manager = get_cuda_queue_manager()
-except ImportError:
-    _cuda_queue_enabled = False
-    _queue_manager = None
-    print("[predict_cr_classifier] CUDA queue not available, running directly")
+# CUDA Queue removed - running directly
+print("[predict_cr_classifier] Running directly without CUDA queue")
 
 
 def _classify_internal(text: str):
@@ -70,50 +62,9 @@ def _classify_internal(text: str):
 def classify(text: str):
     """
     Classify text using CR classifier
-    Uses CUDA queue if available to manage GPU usage
+    Runs directly without CUDA queue
     """
-    if not _cuda_queue_enabled or _queue_manager is None:
-        # No queue available, run directly
-        return _classify_internal(text)
-    
-    # Use CUDA queue - submit task and wait for result
-    result_container = {'result': None, 'event': threading.Event()}
-    
-    def callback(result):
-        result_container['result'] = result
-        result_container['event'].set()
-    
-    def error_callback(error):
-        print(f"[predict_cr_classifier] Error in queue: {error}")
-        result_container['result'] = {
-            "text": text,
-            "probabilities": {},
-            "prediction": "other",
-            "error": str(error)
-        }
-        result_container['event'].set()
-    
-    _queue_manager.submit_task(
-        _classify_internal,
-        text,
-        callback=callback,
-        error_callback=error_callback
-    )
-    
-    # Wait for result (with timeout)
-    result_container['event'].wait(timeout=30.0)
-    
-    if result_container['result'] is None:
-        # Timeout - return default
-        print(f"[predict_cr_classifier] Timeout waiting for result")
-        return {
-            "text": text,
-            "probabilities": {},
-            "prediction": "other",
-            "error": "timeout"
-        }
-    
-    return result_container['result']
+    return _classify_internal(text)
 
 
 __all__ = [
