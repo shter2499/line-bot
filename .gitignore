@@ -17,6 +17,7 @@ image_data/
 classifier-image-edc/
 verifySlip(not_use)/
 format.json
+debug.txt
 
 # MacOS
 .DS_Store
