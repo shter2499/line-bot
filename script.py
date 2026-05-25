@@ -1,24 +1,26 @@
 import os
 import imghdr
 import time
-from threading import Semaphore
+import requests  # ใช้สำหรับแจ้งข้อมูลไปยัง server.js
+# from threading import Semaphore  # ใช้กับ /api/message (ปิดการใช้งานแล้ว)
 
 from dotenv import load_dotenv
 from flask import Flask, request, abort, Response, jsonify
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage, StickerMessage
 
 from dialog.edcDialog import process_step_message, process_image_message, set_reply_callback
+from fetchData.fetch import _get_bot_status
 # CUDA queue removed
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# จำกัดจำนวน requests พร้อมกันไม่เกิน 3 requests
-request_semaphore = Semaphore(3)
+# จำกัดจำนวน requests พร้อมกันไม่เกิน 3 requests (ใช้กับ /api/message - ปิดการใช้งานแล้ว)
+# request_semaphore = Semaphore(3)
 
 def _mask_len(v: str | None) -> str:
     if not v:
@@ -32,6 +34,9 @@ CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 # print(f"[access token] {CHANNEL_ACCESS_TOKEN}")
 # print(f"[channel secret] {CHANNEL_SECRET}")
+
+# URL ของ server.js (line-bot-web) สำหรับแจ้งข้อมูลข้อความและ bot response
+WEB_SERVER_URL = os.environ.get('WEB_SERVER_URL', 'http://host.docker.internal:3001')
 
 if not CHANNEL_ACCESS_TOKEN or CHANNEL_ACCESS_TOKEN.startswith("YOUR_"):
     raise RuntimeError(
@@ -48,15 +53,53 @@ handler = WebhookHandler(CHANNEL_SECRET)
 # Register reply callback used by auto-submit to respond with stored reply_token
 
 
+def _notify_server_incoming(user_id: str, reply_token: str, message_type: str,
+                             message_text: str = '', payload: dict = None,
+                             source_type: str = 'user', source_id: str = '') -> None:
+    """แจ้ง server.js ว่ามีข้อความใหม่จากลูกค้า เพื่อบันทึก DB และ broadcast ให้ admin"""
+    try:
+        data = {
+            'user_id': user_id,
+            'reply_token': reply_token,
+            'message_type': message_type,
+            'message_text': message_text,
+            'payload': payload or {},
+            'source_type': source_type,
+            'source_id': source_id,
+        }
+        resp = requests.post(
+            f"{WEB_SERVER_URL}/api/incoming-message",
+            json=data,
+            timeout=10
+        )
+        print(f"[notify_server_incoming {user_id}] status={resp.status_code}")
+    except Exception as e:
+        print(f"[ERROR] _notify_server_incoming failed: {e}")
+
+
 def _register_reply_callback():
-    def _reply(token: str, text: str):
-        # print(f"[_reply_callback] token={token}, text={text}")
+    def _reply(customer_id: str, token: str, text: str):
+        # ส่งข้อความกลับลูกค้าผ่าน LINE API
         try:
             line_bot_api.reply_message(token, TextSendMessage(text=text))
         except Exception as e:
             print("=" * 50)
             print(f"[EMPTY REPLY] {e}")
             print("=" * 50)
+        # แจ้ง server.js ให้บันทึกข้อความบอทและ broadcast ให้ admin
+        try:
+            requests.post(
+                f"{WEB_SERVER_URL}/api/bot_response",
+                json={
+                    'customer_id': customer_id,
+                    'reply_token': token,
+                    'text': text,
+                },
+                timeout=5
+            )
+            print(f"[_reply_callback {customer_id}] Notified server.js bot_response text: {text}")
+        except Exception as e:
+            print(f"[ERROR] _reply_callback notify server.js failed: {e}")
     try:
         set_reply_callback(_reply)
     except Exception as e:
@@ -109,23 +152,18 @@ def health():
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    # ปิดการรับข้อความจาก LINE Messaging API
-    # ใช้ /api/message แทน
-    print("[INFO] /callback disabled - use /api/message instead")
+    signature = request.headers.get('X-Line-Signature', '')
+    body = request.get_data(as_text=True)
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        print("[ERROR] Invalid signature -> ตรวจสอบ Channel Secret / Access Token")
+        abort(400)
     return 'OK'
-    
-    # signature = request.headers.get('X-Line-Signature', '')
-    # body = request.get_data(as_text=True)
-    # try:
-    #     handler.handle(body, signature)
-    # except InvalidSignatureError:
-    #     print("[ERROR] Invalid signature -> ตรวจสอบ Channel Secret / Access Token")
-    #     abort(400)
-    # return 'OK'
 
 
-# Web API endpoint สำหรับรับข้อมูลจากหน้าเว็บในรูปแบบ LINE webhook
-@app.route('/api/message', methods=['POST'])
+# Web API endpoint สำหรับรับข้อมูลจากหน้าเว็บในรูปแบบ LINE webhook (ปิดการใช้งาน - ใช้ /callback แทน)
+# @app.route('/api/message', methods=['POST'])
 def web_message():
     """
     รับข้อมูลจากหน้าเว็บในรูปแบบ LINE Messaging API webhook format
@@ -173,13 +211,13 @@ def web_message():
     """
     # ลอง acquire semaphore (non-blocking)
     # ถ้าไม่ได้ = มี request มากกว่า 3 ตัวกำลังทำงานอยู่
-    if not request_semaphore.acquire(blocking=False):
-        print("[API] ⚠️ Server busy - too many concurrent requests (max: 3)")
-        return jsonify({
-            "status": "error", 
-            "message": "เซิร์ฟเวอร์กำลังประมวลผลคำขออื่นอยู่ กรุณารอสักครู่แล้วลองใหม่อีกครั้ง",
-            "code": "SERVER_BUSY"
-        }), 503
+    # if not request_semaphore.acquire(blocking=False):
+    #     print("[API] ⚠️ Server busy - too many concurrent requests (max: 3)")
+    #     return jsonify({
+    #         "status": "error", 
+    #         "message": "เซิร์ฟเวอร์กำลังประมวลผลคำขออื่นอยู่ กรุณารอสักครู่แล้วลองใหม่อีกครั้ง",
+    #         "code": "SERVER_BUSY"
+    #     }), 503
     
     try:
         # เช็ค CUDA memory ก่อนประมวลผล
@@ -337,64 +375,137 @@ def web_message():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
     
-    finally:
-        # ปล่อย semaphore เพื่อให้ request ถัดไปสามารถเข้ามาได้
-        request_semaphore.release()
-        print("[API] ✓ Request slot released")
+    # finally:
+    #     # ปล่อย semaphore เพื่อให้ request ถัดไปสามารถเข้ามาได้
+    #     request_semaphore.release()
+    #     print("[API] ✓ Request slot released")
 
 
-# รับข้อความ (ปิดการใช้งาน - ใช้ /api/message แทน)
-# @handler.add(MessageEvent, message=TextMessage)
-# def handle_message(event):
-#     user_message = (event.message.text or '').strip()
-#
-#     if event.source.type == "user":
-#         user_id = event.source.user_id
-#     else:
-#         group_key = getattr(event.source, f"{event.source.type}_id", "")
-#         user_id = f"{event.source.type}:{group_key}:{getattr(event.source, 'user_id', '')}"
-#
-#     reply_message = process_step_message(user_id, user_message, reply_token=event.reply_token)
-#     # Silent mode: only reply when we have something to say
-#     if reply_message is not None:
-#         try:
-#             line_bot_api.reply_message(
-#                 event.reply_token,
-#                 TextSendMessage(text=reply_message)
-#             )
-#         except Exception as e:
-#             print(f"[ERROR] reply_message failed: {e}")
+# รับข้อความ
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_message = (event.message.text or '').strip()
 
-# รับรูปภาพ (ปิดการใช้งาน - ใช้ /api/message แทน)
-# @handler.add(MessageEvent, message=ImageMessage)
-# def handle_image(event):
-#     user_id = ""
-#     if event.source.type == "user":
-#         user_id = event.source.user_id
-#     else:
-#         group_key = getattr(event.source, f"{event.source.type}_id", "")
-#         user_id = f"{event.source.type}:{group_key}:{getattr(event.source, 'user_id', '')}"
-#
-#     try:
-#         file_path = _download_line_image(event.message.id)
-#     except Exception as e:
-#         print(f"[ERROR] image download failed: {e}")
-#         try:
-#             line_bot_api.reply_message(event.reply_token, TextSendMessage(
-#                 text=""))
-#             print("[INFO] replied empty message after download error")
-#         except Exception as ee:
-#             print(f"[ERROR] reply fail after download error: {ee}")
-#         return
-#
-#     ack = process_image_message(user_id, file_path, reply_token=event.reply_token)
-#     # If ack is None, we'll reply later (after 5s debounce) using the stored reply_token
-#     if ack is not None:
-#         try:
-#             line_bot_api.reply_message(
-#                 event.reply_token, TextSendMessage(text=ack))
-#         except Exception as e:
-#             print(f"[ERROR] reply_image_message failed: {e}")
+    if event.source.type == "user":
+        user_id = event.source.user_id
+        source_type = 'user'
+        source_id = event.source.user_id
+    else:
+        group_key = getattr(event.source, f"{event.source.type}_id", "")
+        user_id = f"{event.source.type}:{group_key}"
+        source_type = event.source.type
+        source_id = group_key
+
+    # แจ้ง server.js ว่ามีข้อความใหม่เข้า (บันทึก DB + broadcast admin)
+    # ดึง LINE original emojis ถ้ามี (แทนที่ placeholder เช่น "(Cony peek)")
+    emojis_data = None
+    if hasattr(event.message, 'emojis') and event.message.emojis:
+        emojis_data = [
+            {
+                'index': e.index,
+                'length': e.length,
+                'productId': e.product_id,
+                'emojiId': e.emoji_id,
+            }
+            for e in event.message.emojis
+        ]
+
+    _notify_server_incoming(
+        user_id=user_id,
+        reply_token=event.reply_token,
+        message_type='text',
+        message_text=user_message,
+        payload={'type': 'text', 'text': user_message, 'emojis': emojis_data} if emojis_data else None,
+        source_type=source_type,
+        source_id=source_id,
+    )
+
+    # บอทไม่ตอบกลับข้อความในกลุ่มหรือห้อง และตรวจสอบ bot_status จาก DB
+    if source_type not in ('group', 'room'):
+        if _get_bot_status(user_id) == 1:
+            process_step_message(user_id, user_message, reply_token=event.reply_token)
+        else:
+            print(f"[SKIP] Bot OFF for {user_id}")
+    else:
+        print(f"[SKIP] Bot suppressed for {source_type} message from {user_id}")
+
+# รับรูปภาพ
+@handler.add(MessageEvent, message=ImageMessage)
+def handle_image(event):
+    user_id = ""
+    if event.source.type == "user":
+        user_id = event.source.user_id
+        source_type = 'user'
+        source_id = event.source.user_id
+    else:
+        group_key = getattr(event.source, f"{event.source.type}_id", "")
+        user_id = f"{event.source.type}:{group_key}"
+        source_type = event.source.type
+        source_id = group_key
+
+    try:
+        file_path = _download_line_image(event.message.id)
+    except Exception as e:
+        print(f"[ERROR] image download failed: {e}")
+        return
+
+    # แจ้ง server.js ว่ามีรูปภาพใหม่เข้า (บันทึก DB + broadcast admin)
+    proxy_url = f"/api/line-media-proxy/{event.message.id}"
+    _notify_server_incoming(
+        user_id=user_id,
+        reply_token=event.reply_token,
+        message_type='image',
+        message_text='',
+        payload={
+            'type': 'image',
+            'url': proxy_url,
+            'previewUrl': proxy_url,
+            'localPath': file_path,
+        },
+        source_type=source_type,
+        source_id=source_id,
+    )
+
+    # บอทไม่ตอบกลับรูปภาพในกลุ่มหรือห้อง และตรวจสอบ bot_status จาก DB
+    if source_type not in ('group', 'room'):
+        if _get_bot_status(user_id) == 1:
+            process_image_message(user_id, file_path, reply_token=event.reply_token)
+        else:
+            print(f"[SKIP] Bot OFF for {user_id}")
+    else:
+        print(f"[SKIP] Bot suppressed for {source_type} image from {user_id}")
+
+
+# รับสติกเกอร์
+@handler.add(MessageEvent, message=StickerMessage)
+def handle_sticker(event):
+    if event.source.type == "user":
+        user_id = event.source.user_id
+        source_type = 'user'
+        source_id = event.source.user_id
+    else:
+        group_key = getattr(event.source, f"{event.source.type}_id", "")
+        user_id = f"{event.source.type}:{group_key}"
+        source_type = event.source.type
+        source_id = group_key
+
+    # แจ้ง server.js ว่ามีสติกเกอร์ใหม่เข้า (บันทึก DB + broadcast admin)
+    sticker_id = event.message.sticker_id
+    _notify_server_incoming(
+        user_id=user_id,
+        reply_token=event.reply_token,
+        message_type='sticker',
+        message_text='',
+        payload={
+            'type': 'sticker',
+            'packageId': event.message.package_id,
+            'stickerId': sticker_id,
+            'url': f"https://stickershop.line-scdn.net/stickershop/v1/sticker/{sticker_id}/iPhone/sticker@2x.png",
+            'previewUrl': f"https://stickershop.line-scdn.net/stickershop/v1/sticker/{sticker_id}/iPhone/sticker.png",
+        },
+        source_type=source_type,
+        source_id=source_id,
+    )
 
 
 def _download_line_image(message_id: str) -> str:

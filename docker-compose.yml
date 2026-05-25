@@ -10,4 +10,6 @@ services:
       - "host.docker.internal:host-gateway"             # เผื่อกรณี Linux/WSL
     volumes:
       - ./tmp_uploads:/app/tmp_uploads
+      - ./classifier:/app/data.csv
+      - ./classifier-edc:/app/classifier-edc
     restart: unless-stopped

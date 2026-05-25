@@ -221,10 +221,144 @@ def get_epoch(start_date=None, end_date=None):
     return start_epoch, end_epoch
 
 
+def _get_bot_status(user_id: str) -> int:
+    """ตรวจสอบ bot_status จาก DB line_service โดยตรง (1=ON, 0=OFF)
+    default คืน 1 ถ้าไม่พบ customer หรือเกิด error เพื่อความปลอดภัย"""
+    db_config = {
+        'host': os.getenv('MYSQL_HOST', 'host.docker.internal'),
+        'port': int(os.getenv('MYSQL_PORT', '3306')),
+        'user': os.getenv('MYSQL_USER', 'root'),
+        'password': os.getenv('MYSQL_PASSWORD', ''),
+        'database': os.getenv('MYSQL_DATABASE_LINE', 'line_service'),
+        'charset': 'utf8mb4',
+        'connection_timeout': 5,
+    }
+    conn = None
+    cursor = None
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT bot_status FROM customers WHERE id = %s LIMIT 1',
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return 1  # ลูกค้าใหม่ยังไม่มีในระบบ → เปิดบอทเป็น default
+        status = row[0]
+        result = 1 if status is None else int(status)
+        # print(f"[bot_status] {user_id} = {result}")
+        return result
+    except Exception as e:
+        print(f"[ERROR] _get_bot_status failed: {e}")
+        return 1  # fail-safe: เปิดบอทเป็น default
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if conn is not None and conn.is_connected():
+                conn.close()
+        except Exception:
+            pass
+
+
 __all__ = [
     "fetch",
     "uploadFile",
     "fetch_store",
     "search_duplicate",
     "get_epoch",
+    "_get_bot_status",
+    "check_duplicate_ticket",
+    "record_ticket_open",
 ]
+
+
+def _get_line_service_db_config() -> dict:
+    """คืน config สำหรับ DB line_service"""
+    return {
+        "host": os.getenv("MYSQL_HOST", "localhost"),
+        "port": int(os.getenv("MYSQL_PORT", 3306)),
+        "user": os.getenv("MYSQL_USER", "root"),
+        "password": os.getenv("MYSQL_PASSWORD", ""),
+        "database": os.getenv("MYSQL_DATABASE_LINE", "line_service"),
+    }
+
+
+def check_duplicate_ticket(branch: str) -> dict:
+    """
+    ตรวจสอบว่าสาขานี้เคยเปิด Ticket ในวันนี้แล้วหรือไม่ (เขตเวลาไทย UTC+7)
+    Returns: {"found": bool, "ticket_id": str | None}
+    """
+    if not branch or not branch.strip():
+        return {"found": False, "ticket_id": None}
+
+    mydb = None
+    cursor = None
+    try:
+        mydb = mysql.connector.connect(**_get_line_service_db_config())
+        cursor = mydb.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT ticket_id
+            FROM tickets
+            WHERE branch like %s
+              AND DATE(created_date) = DATE(NOW())
+            ORDER BY created_date DESC
+            LIMIT 1
+        """, (f"%{branch.strip()}%",))
+        print(f"[DB] Checking for duplicate ticket for branch '{branch.strip()}'...")
+        row = cursor.fetchone()
+        if row:
+            print(f"[DB] Duplicate ticket found for branch '{branch}': {row['ticket_id']}")
+            return {"found": True, "ticket_id": row["ticket_id"]}
+        return {"found": False, "ticket_id": None}
+    except mysql.connector.Error as e:
+        print(f"[ERROR] check_duplicate_ticket failed: {e}")
+        return {"found": False, "ticket_id": None}
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if mydb is not None and mydb.is_connected():
+                mydb.close()
+        except Exception:
+            pass
+
+
+def record_ticket_open(branch: str, ticket_id: str, customer_id: str = '') -> None:
+    """
+    บันทึกการเปิด Ticket ลงตาราง tickets ใน line_service เพื่อตรวจสอบ Ticket ซ้ำ
+    """
+    if not branch or not ticket_id:
+        return
+
+    mydb = None
+    cursor = None
+    try:
+        mydb = mysql.connector.connect(**_get_line_service_db_config())
+        cursor = mydb.cursor()
+        cursor.execute("""
+            INSERT INTO tickets (ticket_id, branch, customer_id, created_date)
+            VALUES (%s, %s, %s, NOW())
+        """, (str(ticket_id), branch.strip(), customer_id or ''))
+        mydb.commit()
+        print(f"[DB] Recorded ticket: ticket_id={ticket_id}, branch='{branch}', customer_id='{customer_id}'")
+    except mysql.connector.Error as e:
+        print(f"[ERROR] record_ticket_open failed: {e}")
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if mydb is not None and mydb.is_connected():
+                mydb.close()
+        except Exception:
+            pass
