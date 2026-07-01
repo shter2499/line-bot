@@ -1,0 +1,9 @@
+{
+  "accuracy": 0.953185955786736,
+  "f1_macro": 0.9526069271539503,
+  "precision_macro": 0.9511751569918301,
+  "recall_macro": 0.954603038725791,
+  "num_samples": 1538,
+  "num_errors": 72,
+  "model_dir": "classifier-edc"
+}

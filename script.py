@@ -12,7 +12,11 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage, StickerMessage
 
 from dialog.edcDialog import process_step_message, process_image_message, set_reply_callback
-from fetchData.fetch import _get_bot_status
+from fetchData.fetch import (
+    get_effective_bot_status,
+    set_global_pause_24h,
+    force_global_start_now,
+)
 # CUDA queue removed
 
 load_dotenv()
@@ -109,6 +113,27 @@ def _register_reply_callback():
 _register_reply_callback()
 
 
+def _handle_bot_control_command(user_id: str, source_type: str, text: str) -> tuple[bool, str]:
+    """Handle @command_bot_pause / @command_bot_start. Returns (handled, message)."""
+    normalized = (text or '').strip().lower()
+    if normalized not in {'@command_bot_pause', '@command_bot_start'}:
+        return False, ''
+
+    if source_type != 'user':
+        return True, 'คำสั่งนี้ใช้ได้เฉพาะแชทส่วนตัวกับบอทเท่านั้น'
+
+    if normalized == '@command_bot_pause':
+        result = set_global_pause_24h(issued_by=user_id)
+        if result.get('ok'):
+            return True, f"ระบบบอทถูกหยุดชั่วคราวแล้ว จนถึง {result.get('end_at', '-') }"
+        return True, 'ไม่สามารถหยุดระบบบอทได้ กรุณาลองใหม่อีกครั้ง'
+
+    result = force_global_start_now(issued_by=user_id)
+    if result.get('ok'):
+        return True, 'ระบบบอทกลับมาทำงานแล้ว'
+    return True, 'ไม่สามารถสั่งให้ระบบบอทกลับมาทำงานได้ กรุณาลองใหม่อีกครั้ง'
+
+
 def _check_cuda_memory():
     """ตรวจสอบและรายงานการใช้ CUDA memory"""
     try:
@@ -148,6 +173,22 @@ def root():
 @app.route('/health', methods=['GET'])
 def health():
     return "OK", 200
+
+
+@app.route('/noticallback', methods=['POST'])
+def noticallback():
+    """Minimal webhook endpoint for LINE Developer verification or push-only OA setup."""
+    try:
+        body = request.get_json(silent=True) or {}
+        for event in body.get("events", []):
+            source = event.get("source", {})
+            user_id = source.get("userId", "unknown")
+            group_id = source.get("groupId", "unknown")
+            event_type = event.get("type", "unknown")
+            print(f"[NOTICALLBACK] event_type={event_type} user_id={user_id} group_id={group_id}")
+    except Exception as e:
+        print(f"[NOTICALLBACK] parse error: {e}")
+    return 'OK', 200
 
 
 @app.route("/callback", methods=['POST'])
@@ -420,9 +461,17 @@ def handle_message(event):
         source_id=source_id,
     )
 
+    handled, command_response = _handle_bot_control_command(user_id, source_type, user_message)
+    if handled:
+        try:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=command_response))
+        except Exception as e:
+            print(f"[ERROR] command reply failed: {e}")
+        return
+
     # บอทไม่ตอบกลับข้อความในกลุ่มหรือห้อง และตรวจสอบ bot_status จาก DB
     if source_type not in ('group', 'room'):
-        if _get_bot_status(user_id) == 1:
+        if get_effective_bot_status(user_id) == 1:
             process_step_message(user_id, user_message, reply_token=event.reply_token)
         else:
             print(f"[SKIP] Bot OFF for {user_id}")
@@ -468,7 +517,7 @@ def handle_image(event):
 
     # บอทไม่ตอบกลับรูปภาพในกลุ่มหรือห้อง และตรวจสอบ bot_status จาก DB
     if source_type not in ('group', 'room'):
-        if _get_bot_status(user_id) == 1:
+        if get_effective_bot_status(user_id) == 1:
             process_image_message(user_id, file_path, reply_token=event.reply_token)
         else:
             print(f"[SKIP] Bot OFF for {user_id}")

@@ -6,7 +6,7 @@ State management now uses Redis via session.RedisSession instead of in-memory di
 from __future__ import annotations
 import datetime
 
-from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate, check_duplicate_ticket, record_ticket_open
+from fetchData.fetch import fetch, uploadFile, fetch_store, search_duplicate, check_duplicate_ticket, record_ticket_open, send_helpdesk_alert
 from dialog.aiDialog import requester, process_message, process_part
 import predict_classifier
 import predict_cr_classifier
@@ -18,6 +18,7 @@ import re
 import time
 import threading
 import json
+import csv
 # import requests  # ใช้เพื่อส่ง response ไป external API (ปิดการใช้งานแล้ว)
 from typing import Dict, Optional, Callable
 
@@ -171,6 +172,60 @@ def _clear(uid: str):
     _safe_cancel_timer(uid)
     _delete_state(uid)
 
+
+def _log_other_prediction(user_id: str, text: str, prediction_result: dict) -> None:
+    """บันทึก log ของข้อความที่ classifier ทายเป็น 'other' ลงไฟล์ตามวันที่
+    
+    Args:
+        user_id: LINE user ID
+        text: ข้อความที่ผู้ใช้ส่งมา
+        prediction_result: ผลลัพธ์จาก predict_classifier.classify()
+    """
+    try:
+        # สร้างชื่อไฟล์ตามวันที่ในรูปแบบ YYYYMMDD.csv
+        th_tz = datetime.timezone(datetime.timedelta(hours=7))
+        now_th = datetime.datetime.now(th_tz)
+        date_str = now_th.strftime("%Y%m%d")
+        timestamp = now_th.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # กำหนด path สำหรับเก็บ log (ใช้ environment variable หรือ default path)
+        log_dir = os.getenv("OTHER_PREDICTION_LOG_DIR", "logs/other_predictions")
+        os.makedirs(log_dir, exist_ok=True)
+        
+        log_file = os.path.join(log_dir, f"{date_str}.csv")
+        
+        # ตรวจสอบว่าไฟล์มีอยู่แล้วหรือไม่ (เพื่อเขียน header)
+        file_exists = os.path.isfile(log_file)
+        
+        # เตรียมข้อมูลที่จะบันทึก
+        probabilities = prediction_result.get("probabilities", {})
+        row_data = {
+            "timestamp": timestamp,
+            "user_id": user_id,
+            "text": text.replace("\n", "\\n"),  # escape newlines
+            "predicted_label": prediction_result.get("prediction", "other"),
+            "confidence": prediction_result.get("confidence", 0.0),
+            "prob_other": probabilities.get("other", 0.0),
+            "prob_edc": probabilities.get("edc", 0.0)
+        }
+        
+        # เขียนลงไฟล์ CSV
+        with open(log_file, "a", newline="", encoding="utf-8-sig") as f:
+            fieldnames = ["timestamp", "user_id", "text", "predicted_label", 
+                         "confidence", "prob_other", "prob_edc"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            
+            # เขียน header ถ้าเป็นไฟล์ใหม่
+            if not file_exists:
+                writer.writeheader()
+            
+            writer.writerow(row_data)
+        
+        print(f"[INFO] Logged 'other' prediction to {log_file}")
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to log 'other' prediction: {e}")
+
 _PART1_LABELS = {"รหัสสาขาและชื่อสาขา", "ปัญหาที่พบ", "ชื่อ", "เบอร์ติดต่อ", "ชื่อผู้แจ้ง"}
 
 
@@ -250,7 +305,8 @@ def _submit_parts(user_id: str, parts: str):
         print(f"[CHECK FORMAT DATA PART1 {user_id}] {format_data}")
         parsed_data = None
         try:
-            parsed_data = json.loads(format_data)
+            # ใช้ strict=False เพื่อ tolerate invalid escape sequences จาก AI
+            parsed_data = json.loads(format_data, strict=False)
             part1_content = parsed_data.get("part1", "")
             
             # ใช้ regex เพื่อ parse ข้อมูลแต่ละฟิลด์อย่างแม่นยำ
@@ -260,26 +316,27 @@ def _submit_parts(user_id: str, parts: str):
             phone = ""
             
             # Parse รหัสสาขา
-            branch_match = re.search(r'รหัสสาขาและชื่อสาขา:\s*([^\n\r]*)', part1_content)
+            branch_match = re.search(r'รหัสสาขาและชื่อสาขา\s*:\s*([^\n\r]*)', part1_content)
             if branch_match:
                 branch = _clean_field(branch_match.group(1))
             
             # Parse ปัญหาที่พบ
-            issue_match = re.search(r'ปัญหาที่พบ:\s*([^\n\r]*)', part1_content)
+            issue_match = re.search(r'ปัญหาที่พบ\s*:\s*([^\n\r]*)', part1_content)
             if issue_match:
                 issue = _clean_field(issue_match.group(1))
             
             # Parse ชื่อ
-            name_match = re.search(r'ชื่อ:\s*([^\n\r]*)', part1_content)
+            name_match = re.search(r'ชื่อ\s*:\s*([^\n\r]*)', part1_content)
             if name_match:
                 name = _clean_field(name_match.group(1))
             
             # Parse เบอร์ติดต่อ
-            phone_match = re.search(r'เบอร์ติดต่อ:\s*([^\n\r"]*)', part1_content)
+            phone_match = re.search(r'เบอร์ติดต่อ\s*:\s*([^\n\r"]*)', part1_content)
             if phone_match:
                 phone = _clean_field(phone_match.group(1))
         except (json.JSONDecodeError, KeyError, IndexError) as e:
             print(f"[ERROR {user_id}] Failed to parse part1 format_data: {e}")
+            print(f"[DEBUG {user_id}] Raw format_data: {repr(format_data)}")
             branch = issue = name = phone = ""
         # print(f"[CHECK PART1] branch({branch}) == '':{ branch == ''},\nissue({issue}) == '':{ issue == ''},\nname({name}) == '':{ name == ''},\nphone({phone}) == '':{ phone == ''},\nreply1:{ data['reply1'] }")
 
@@ -319,11 +376,16 @@ def _submit_parts(user_id: str, parts: str):
             for key in state["data"]['text1'].keys():
                 if not state["data"]['text1'][key].strip():
                     req_data.append(key)
-                
-            request = requester(','.join(req_data))
-            _send_bot_response(user_id, state.get("reply_token", ""), request)
-            # Clear tmp1 หลังประมวลผลเสร็จ
+
             _patch_state(user_id, {"data": {"tmp1": []}})
+            if req_data:
+                request = requester(','.join(req_data))
+                _send_bot_response(user_id, state.get("reply_token", ""), request)
+            else:
+                # ข้อมูลครบจาก state เดิมแล้ว → ถาม part2 ต่อ
+                if not state["data"]["part2"] and not state["data"]["tmp2"]:
+                    _patch_state(user_id, {"data": {"reply2": True}})
+                    _send_bot_response(user_id, state.get("reply_token", ""), "เครื่อง EDC ค้างหรือไม่\nAns:\nRestart เครื่อง EDC หรือไม่\nAns:\nสลิปจากเครื่องออกหรือไม่\nAns:")
             return
         else:
             # ข้อมูล part1 ครบแล้ว - บันทึกและดำเนินการต่อ
@@ -356,14 +418,17 @@ def _submit_parts(user_id: str, parts: str):
         print(f"[CHECK PART2 RESPONSE {user_id}] {format_data}")
         parsed_data = None
         try:
-            parsed_data = json.loads(format_data)
+            # ใช้ strict=False เพื่อ tolerate invalid escape sequences จาก AI
+            parsed_data = json.loads(format_data, strict=False)
             part2_content = parsed_data.get("part2", "")
-            ans_parts = part2_content.split("Ans:")
-            freeze = ans_parts[1].split("\\n")[0] if len(ans_parts) > 1 else ""
-            restart = ans_parts[2].split("\\n")[0] if len(ans_parts) > 2 else ""
-            slip = ans_parts[3].split('"')[0] if len(ans_parts) > 3 else ""
+            ans_parts = re.split(r'Ans\s*:', part2_content)
+            # ใช้ splitlines() แทน split("\\n") เพื่อ handle newlines ทุกรูปแบบ
+            freeze = ans_parts[1].splitlines()[0].strip() if len(ans_parts) > 1 else ""
+            restart = ans_parts[2].splitlines()[0].strip() if len(ans_parts) > 2 else ""
+            slip = ans_parts[3].splitlines()[0].strip() if len(ans_parts) > 3 else ""
         except (json.JSONDecodeError, KeyError, IndexError) as e:
             print(f"[ERROR {user_id}] Failed to parse part2 format_data: {e}")
+            print(f"[DEBUG {user_id}] Raw format_data: {repr(format_data)}")
             freeze = restart = slip = ""
         # print(f"[CHECK PART2] freeze:{ freeze}, restart:{ restart}, slip:{ slip}")
         # ตรวจสอบว่าข้อมูลไม่ครบ
@@ -401,11 +466,16 @@ def _submit_parts(user_id: str, parts: str):
             for key in state["data"]['text2'].keys():
                 if not state["data"]['text2'][key].strip():
                     req_data.append(key)
-                
-            request = requester(','.join(req_data))
-            _send_bot_response(user_id, state.get("reply_token", ""), request)
-            # Clear tmp2 หลังประมวลผลเสร็จ
+
             _patch_state(user_id, {"data": {"tmp2": []}})
+            if req_data:
+                request = requester(','.join(req_data))
+                _send_bot_response(user_id, state.get("reply_token", ""), request)
+            else:
+                # ข้อมูลครบจาก state เดิมแล้ว → ขอรูปภาพต่อ
+                if state["data"]["part3"] == False and state.get("image_paths", []) == []:
+                    _patch_state(user_id, {"data": {"reply3": True}})
+                    _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปสลิปลูกค้าด้วยครับ")
             return
         else:
             # ข้อมูล part2 ครบแล้ว - บันทึกและดำเนินการต่อ
@@ -427,7 +497,7 @@ def _submit_parts(user_id: str, parts: str):
         if (freeze.strip() and restart.strip() and slip.strip() and state["data"]["part3"] == False and state["image_paths"] == []):
             print(f"[INFO {user_id}] Asking for part 3 data from part 2...")
             print(f"[CHECK STATE BEFORE PART3 {user_id}] {state}")
-            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
+            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปสลิปลูกค้าด้วยครับ")
             state = _patch_state(user_id, {"data": {"reply3": True}})
             return
             
@@ -505,7 +575,7 @@ def _submit_parts(user_id: str, parts: str):
     elif state["image_paths"] == []:
         # กรณีที่ไม่มีรูปภาพแต่ part1 และ part2 ครบแล้ว ให้รีเควสรูปภาพอีกครั้ง (อาจเกิดจากการที่ผู้ใช้ส่งข้อความมาแทนการส่งรูป)
         if not state["data"]["reply3"]:
-            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปภาพประกอบด้วยครับ")
+            _send_bot_response(user_id, state.get("reply_token", ""), "รบกวนขอรูปสลิปลูกค้าด้วยครับ")
         return
 
 def _schedule_auto_submit(user_id: str, delay_sec: float = 15.0):
@@ -734,6 +804,7 @@ def _summary(user_id: str, txt: dict) -> str:
             dup_check = check_duplicate_ticket(branch)
             if dup_check["found"]:
                 existing_ticket = dup_check["ticket_id"]
+                duplicate_count = int(dup_check.get("count") or 0)
                 print(f"[DUPLICATE {user_id}] Branch '{branch}' already has ticket today: {existing_ticket}")
                 _patch_state(user_id, {"processing_summary": False})
                 _send_bot_response(
@@ -741,16 +812,31 @@ def _summary(user_id: str, txt: dict) -> str:
                     current_reply_token,
                     f"สามารถใช้เลขงาน {existing_ticket} ได้เลยครับ"
                 )
+                if duplicate_count > 3:
+                    send_helpdesk_alert(branch, existing_ticket, duplicate_count)
                 _clear(user_id)
                 return
 
-        resp = fetch(payload)
-        print(f"[RESPONSE AFTER FETCH {user_id}] {'=' * 50}")
-        print(f"[RESPONSE AFTER FETCH {user_id}] {json.dumps(resp, ensure_ascii=False)}")
-        print(f"[RESPONSE AFTER FETCH {user_id}] {'=' * 50}")
-        # resp = {"ok": False}
-
-        if resp.get("ok"):
+        # ✅ เพิ่ม retry logic - พยายามสร้าง ticket สูงสุด 3 ครั้ง
+        max_retries = 3
+        resp = None
+        for attempt in range(1, max_retries + 1):
+            print(f"[INFO {user_id}] Ticket creation attempt {attempt}/{max_retries}...")
+            resp = fetch(payload)
+            print(f"[RESPONSE AFTER FETCH {user_id}] {'=' * 50}")
+            print(f"[RESPONSE AFTER FETCH {user_id}] Attempt {attempt}: {json.dumps(resp, ensure_ascii=False)}")
+            print(f"[RESPONSE AFTER FETCH {user_id}] {'=' * 50}")
+            
+            if resp and resp.get("ok"):
+                print(f"[SUCCESS {user_id}] Ticket created successfully on attempt {attempt}")
+                break
+            else:
+                print(f"[RETRY {user_id}] Attempt {attempt} failed, retrying...")
+                if attempt < max_retries:
+                    time.sleep(5)  # รอ 5 วินาทีก่อน retry
+        
+        # ตรวจสอบผลลัพธ์สุดท้าย
+        if resp and resp.get("ok"):
             for img_path in image_paths:
                 if img_path and os.path.isfile(img_path):
                     try:
@@ -794,7 +880,7 @@ def _summary(user_id: str, txt: dict) -> str:
                     except Exception as rec_err:
                         print(f"[WARN {user_id}] record_ticket_open failed: {rec_err}")
 
-                res_txt = f"เลขงานครับ {ticket_id}"
+                res_txt = f"เลขงานครับ {ticket_id} \n\n เพื่อเป็นนการปรับปรุงการให้บริการที่ดีขึ้น ทาง Service Desk P5 ต้องการให้คุณลูกค้าช่วยทำแบบประเมินความพึงพอใจโดยประเมิน ผ่าน Link และอ้างอิงตามเลขเคสที่ทาง P5 ส่งให้ด้วยนะครับ ขอบคุณครับ\nhttps://forms.gle/nRciijVQypHoWDpU9"
                 _send_bot_response(user_id, current_reply_token, res_txt)
                 
                 # อย่า _clear() ทันที เพื่อให้ ticket info อยู่ใน state
@@ -806,8 +892,8 @@ def _summary(user_id: str, txt: dict) -> str:
                 print(f"[ERROR {user_id}] parsing ticket ID failed: {e}")
                 return f"[ERROR]: {e}"
         else:
-            # ถ้า fetch ไม่สำเร็จ ให้ reset flag
-            print(f"[ERROR {user_id}] Ticket creation failed: {resp}")
+            # ถ้า fetch ไม่สำเร็จหลังจาก retry ครบ 3 รอบแล้ว
+            print(f"[ERROR {user_id}] Ticket creation failed after {max_retries} attempts: {resp}")
             _patch_state(user_id, {"processing_summary": False})
             _send_bot_response(user_id, current_reply_token, "รอเลขงานสักครู่ครับ")
             
@@ -841,7 +927,8 @@ def _handle_edc_message(user_id: str, lower: str, reply_token: str) -> Optional[
     })
 
     try:
-        part = json.loads(process_message(lower, state))
+        # ใช้ strict=False เพื่อ tolerate invalid escape sequences จาก AI
+        part = json.loads(process_message(lower, state), strict=False)
     finally:
         _patch_state(user_id, {"processing_text": False})
     
@@ -939,8 +1026,9 @@ def process_step_message(user_id: str, text: str, reply_token: Optional[str] = N
         print(f"[INFO {user_id}] Handling EDC message..." )
         reply_text = _handle_edc_message(user_id, lower, reply_token)
     elif prediction == "other":
-        # ไม่ใช่ EDC - หยุดการทำงานโดยไม่ส่งอะไรกลับ
-        print(f"[INFO {user_id}] Non-EDC message received, sending empty response." )
+        # ไม่ใช่ EDC - บันทึก log และหยุดการทำงาน
+        print(f"[INFO {user_id}] Non-EDC message received, logging and ignoring." )
+        _log_other_prediction(user_id, raw_text, predic)
         # _send_bot_response(user_id, reply_token, " ")
         return None
 

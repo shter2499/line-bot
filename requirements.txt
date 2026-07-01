@@ -14,6 +14,11 @@ safetensors>=0.4.3
 gunicorn>=21.0.2
 <<<<<<< HEAD
 torchvision>=0.16.1
+<<<<<<< HEAD
 =======
 torchvision>=0.16.1
 >>>>>>> 3fc96bf (update)
+=======
+scikit-learn>=1.3
+matplotlib>=3.8
+>>>>>>> 704df81 (add analysis function and bug fix)

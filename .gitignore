@@ -18,6 +18,9 @@ classifier-image-edc/
 verifySlip(not_use)/
 format.json
 debug.txt
+logs/
+confusion_matrix.png
+error_analysis.csv
 
 # MacOS
 .DS_Store
