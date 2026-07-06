@@ -91,19 +91,19 @@ def _register_reply_callback():
             print(f"[EMPTY REPLY] {e}")
             print("=" * 50)
         # แจ้ง server.js ให้บันทึกข้อความบอทและ broadcast ให้ admin
-        try:
-            requests.post(
-                f"{WEB_SERVER_URL}/api/bot_response",
-                json={
-                    'customer_id': customer_id,
-                    'reply_token': token,
-                    'text': text,
-                },
-                timeout=5
-            )
-            print(f"[_reply_callback {customer_id}] Notified server.js bot_response text: {text}")
-        except Exception as e:
-            print(f"[ERROR] _reply_callback notify server.js failed: {e}")
+        # try:
+        #     requests.post(
+        #         f"{WEB_SERVER_URL}/api/bot_response",
+        #         json={
+        #             'customer_id': customer_id,
+        #             'reply_token': token,
+        #             'text': text,
+        #         },
+        #         timeout=5
+        #     )
+        #     print(f"[_reply_callback {customer_id}] Notified server.js bot_response text: {text}")
+        # except Exception as e:
+        #     print(f"[ERROR] _reply_callback notify server.js failed: {e}")
     try:
         set_reply_callback(_reply)
     except Exception as e:
@@ -159,8 +159,9 @@ def _check_cuda_memory():
 
 @app.before_request
 def _log_request():
-    # Log ทุก request ที่เข้า ช่วยดีบักเวลาตั้ง Webhook
-    print(f"[REQ] {request.method} {request.path}")
+    # Log ทุก request ที่เข้า ช่วยดีบักเวลาตั้ง Webhook (ยกเว้น healthcheck)
+    if request.path != '/health':
+        print(f"[REQ] {request.method} {request.path}")
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -439,42 +440,44 @@ def handle_message(event):
 
     # แจ้ง server.js ว่ามีข้อความใหม่เข้า (บันทึก DB + broadcast admin)
     # ดึง LINE original emojis ถ้ามี (แทนที่ placeholder เช่น "(Cony peek)")
-    emojis_data = None
-    if hasattr(event.message, 'emojis') and event.message.emojis:
-        emojis_data = [
-            {
-                'index': e.index,
-                'length': e.length,
-                'productId': e.product_id,
-                'emojiId': e.emoji_id,
-            }
-            for e in event.message.emojis
-        ]
+    # emojis_data = None
+    # if hasattr(event.message, 'emojis') and event.message.emojis:
+    #     emojis_data = [
+    #         {
+    #             'index': e.index,
+    #             'length': e.length,
+    #             'productId': e.product_id,
+    #             'emojiId': e.emoji_id,
+    #         }
+    #         for e in event.message.emojis
+    #     ]
 
-    _notify_server_incoming(
-        user_id=user_id,
-        reply_token=event.reply_token,
-        message_type='text',
-        message_text=user_message,
-        payload={'type': 'text', 'text': user_message, 'emojis': emojis_data} if emojis_data else None,
-        source_type=source_type,
-        source_id=source_id,
-    )
+    # _notify_server_incoming(
+    #     user_id=user_id,
+    #     reply_token=event.reply_token,
+    #     message_type='text',
+    #     message_text=user_message,
+    #     payload={'type': 'text', 'text': user_message, 'emojis': emojis_data} if emojis_data else None,
+    #     source_type=source_type,
+    #     source_id=source_id,
+    # )
 
-    handled, command_response = _handle_bot_control_command(user_id, source_type, user_message)
-    if handled:
-        try:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=command_response))
-        except Exception as e:
-            print(f"[ERROR] command reply failed: {e}")
-        return
+    # ตรวจสอบคำสั่ง bot control (ปิดการใช้งาน)
+    # handled, command_response = _handle_bot_control_command(user_id, source_type, user_message)
+    # if handled:
+    #     try:
+    #         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=command_response))
+    #     except Exception as e:
+    #         print(f"[ERROR] command reply failed: {e}")
+    #     return
 
-    # บอทไม่ตอบกลับข้อความในกลุ่มหรือห้อง และตรวจสอบ bot_status จาก DB
+    # บอทไม่ตอบกลับข้อความในกลุ่มหรือห้อง
     if source_type not in ('group', 'room'):
-        if get_effective_bot_status(user_id) == 1:
-            process_step_message(user_id, user_message, reply_token=event.reply_token)
-        else:
-            print(f"[SKIP] Bot OFF for {user_id}")
+        # ตรวจสอบ bot_status จาก DB (ปิดการใช้งาน - ตอบเสมอ)
+        # if get_effective_bot_status(user_id) == 1:
+        process_step_message(user_id, user_message, reply_token=event.reply_token)
+        # else:
+        #     print(f"[SKIP] Bot OFF for {user_id}")
     else:
         print(f"[SKIP] Bot suppressed for {source_type} message from {user_id}")
 
@@ -499,28 +502,29 @@ def handle_image(event):
         return
 
     # แจ้ง server.js ว่ามีรูปภาพใหม่เข้า (บันทึก DB + broadcast admin)
-    proxy_url = f"/api/line-media-proxy/{event.message.id}"
-    _notify_server_incoming(
-        user_id=user_id,
-        reply_token=event.reply_token,
-        message_type='image',
-        message_text='',
-        payload={
-            'type': 'image',
-            'url': proxy_url,
-            'previewUrl': proxy_url,
-            'localPath': file_path,
-        },
-        source_type=source_type,
-        source_id=source_id,
-    )
+    # proxy_url = f"/api/line-media-proxy/{event.message.id}"
+    # _notify_server_incoming(
+    #     user_id=user_id,
+    #     reply_token=event.reply_token,
+    #     message_type='image',
+    #     message_text='',
+    #     payload={
+    #         'type': 'image',
+    #         'url': proxy_url,
+    #         'previewUrl': proxy_url,
+    #         'localPath': file_path,
+    #     },
+    #     source_type=source_type,
+    #     source_id=source_id,
+    # )
 
-    # บอทไม่ตอบกลับรูปภาพในกลุ่มหรือห้อง และตรวจสอบ bot_status จาก DB
+    # บอทไม่ตอบกลับรูปภาพในกลุ่มหรือห้อง
     if source_type not in ('group', 'room'):
-        if get_effective_bot_status(user_id) == 1:
-            process_image_message(user_id, file_path, reply_token=event.reply_token)
-        else:
-            print(f"[SKIP] Bot OFF for {user_id}")
+        # ตรวจสอบ bot_status จาก DB (ปิดการใช้งาน - ตอบเสมอ)
+        # if get_effective_bot_status(user_id) == 1:
+        process_image_message(user_id, file_path, reply_token=event.reply_token)
+        # else:
+        #     print(f"[SKIP] Bot OFF for {user_id}")
     else:
         print(f"[SKIP] Bot suppressed for {source_type} image from {user_id}")
 
@@ -539,22 +543,22 @@ def handle_sticker(event):
         source_id = group_key
 
     # แจ้ง server.js ว่ามีสติกเกอร์ใหม่เข้า (บันทึก DB + broadcast admin)
-    sticker_id = event.message.sticker_id
-    _notify_server_incoming(
-        user_id=user_id,
-        reply_token=event.reply_token,
-        message_type='sticker',
-        message_text='',
-        payload={
-            'type': 'sticker',
-            'packageId': event.message.package_id,
-            'stickerId': sticker_id,
-            'url': f"https://stickershop.line-scdn.net/stickershop/v1/sticker/{sticker_id}/iPhone/sticker@2x.png",
-            'previewUrl': f"https://stickershop.line-scdn.net/stickershop/v1/sticker/{sticker_id}/iPhone/sticker.png",
-        },
-        source_type=source_type,
-        source_id=source_id,
-    )
+    # sticker_id = event.message.sticker_id
+    # _notify_server_incoming(
+    #     user_id=user_id,
+    #     reply_token=event.reply_token,
+    #     message_type='sticker',
+    #     message_text='',
+    #     payload={
+    #         'type': 'sticker',
+    #         'packageId': event.message.package_id,
+    #         'stickerId': sticker_id,
+    #         'url': f"https://stickershop.line-scdn.net/stickershop/v1/sticker/{sticker_id}/iPhone/sticker@2x.png",
+    #         'previewUrl': f"https://stickershop.line-scdn.net/stickershop/v1/sticker/{sticker_id}/iPhone/sticker.png",
+    #     },
+    #     source_type=source_type,
+    #     source_id=source_id,
+    # )
 
 
 def _download_line_image(message_id: str) -> str:

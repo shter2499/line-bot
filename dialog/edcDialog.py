@@ -19,7 +19,6 @@ import time
 import threading
 import json
 import csv
-# import requests  # ใช้เพื่อส่ง response ไป external API (ปิดการใช้งานแล้ว)
 from typing import Dict, Optional, Callable
 
 
@@ -27,14 +26,12 @@ SESSION_TIMEOUT_SEC = 600
 _reply_cb: Optional[Callable[[str, str, str], None]] = None  # cb(customer_id, reply_token, text)
 _redis: Optional[RedisSession] = None
 _timers: Dict[str, threading.Timer] = {}
-_timer_lock = threading.Lock()  # Thread-safe timer management
+_timer_lock = threading.Lock() 
 
 
 def _get_redis() -> RedisSession:
     global _redis
     if _redis is None:
-        # Use environment-driven configuration from session.RedisSession
-        # This respects REDIS_URL / REDIS_HOST / REDIS_PORT inside Docker
         _redis = RedisSession()
     return _redis
 
@@ -57,7 +54,7 @@ def _default_state(uid: str) -> Dict:
         "ticket_created": False,
         "ticket_id": "",
         "ticket_reply_token": "",
-        "ignore_group":[""],
+        "ignore_group": [],  # เปลี่ยนจาก [""] เป็น [] เพื่อป้องกัน empty string match
         "data": {
             "part1": False,
             "text1": {"branch": "", "issue": "", "name": "", "phone": ""},
@@ -291,8 +288,9 @@ def _submit_parts(user_id: str, parts: str):
         return
         
     data = state.get("data")
-    for i in state["ignore_group"]:
-        if i in user_id:
+    # เช็ค ignore_group เฉพาะที่ไม่ใช่ empty string
+    for i in state.get("ignore_group", []):
+        if i and i in user_id:  # เพิ่มเงื่อนไข: i ต้องไม่เป็น empty string
             print(f"[_submit_parts {user_id}] Ignored group {i}...")
             _clear(user_id)
             return
@@ -1105,8 +1103,6 @@ def _normalize_branch_in_text(user_id: str, text: str) -> str:
             # แทนทั้งบรรทัดให้เป็นชื่อสาขาตาม find_branch
             lines[i] = f"รหัสสาขาและชื่อสาขา:{site_name}"
             return "\n".join(lines)
-
-    # ถ้าไม่มีบรรทัด "รหัสสาขาและชื่อสาขา:" แสดงว่าอาจส่งมาแค่รหัส เช่น "1350"
     return site_name
 
 
@@ -1125,5 +1121,4 @@ def parse_header(text: str):
     return f"EDC {edc_freeze},TIME,APP, Slip EDC {edc_slip}"
 
 
-__all__ = ["process_step_message",
-           "process_image_message", "set_reply_callback"]
+__all__ = ["process_step_message","process_image_message", "set_reply_callback"]

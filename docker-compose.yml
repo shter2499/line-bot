@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: line-bot-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   app:
     build: .
     container_name: line-bot-app
@@ -10,5 +22,17 @@ services:
       - "host.docker.internal:host-gateway"             # เผื่อกรณี Linux/WSL
     volumes:
       - ./tmp_uploads:/app/tmp_uploads
-      - .:/app
+      - ./classifier-cr:/app/classifier-cr
+      - ./classifier-edc:/app/classifier-edc
+      - ./classifier-image-edc:/app/classifier-image-edc
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s  # เพิ่มจาก 30s เป็น 60s เพื่อลด noise
+      timeout: 10s
+      retries: 3
+      start_period: 40s

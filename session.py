@@ -16,12 +16,6 @@ class RedisSession:
         self.ttl = int(os.getenv('SESSION_TTL', str(ttl_seconds)))
 
         url = os.getenv('REDIS_URL')
-<<<<<<< HEAD
-        # url = "redis://host.docker.internal:6379/0"
-        print(f"[Redis] Initializing RedisSession with TTL={self.ttl} seconds")
-        print(f"[Redis] REDIS_URL: {url}")
-=======
->>>>>>> 0e14b7f (ปรับให้บอทไม่ตอบถ้าไม่เกี่ยวข้อง)
         try:
             if url:
                 print(f"[Redis] connecting via URL: {url}")

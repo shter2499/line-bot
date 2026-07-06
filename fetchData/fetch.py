@@ -10,7 +10,7 @@ from requests import RequestException
 import json
 import requests
 import mimetypes
-import mysql.connector
+# import mysql.connector  # ปิดการใช้งาน MySQL
 import datetime
 import pytz
 import os
@@ -80,41 +80,44 @@ def uploadFile(img):
 
 
 def fetch_store(storeID: str, host: str = "localhost", port: int = 3306, user: str = "root", password: str = "", database: str = "store_name"):
-    db_config = {
-        "host": os.getenv("MYSQL_HOST", host),
-        "port": int(os.getenv("MYSQL_PORT", port)),
-        "user": os.getenv("MYSQL_USER", user),
-        "password": os.getenv("MYSQL_PASSWORD", password),
-        "database": os.getenv("MYSQL_DATABASE", database),
-    }
+    # ฟังก์ชันนี้ต้องใช้ MySQL - ปิดการใช้งานชั่วคราว
+    print(f"[WARN] fetch_store() is disabled - MySQL not available")
+    return []
+    
+    # db_config = {
+    #     "host": os.getenv("MYSQL_HOST", host),
+    #     "port": int(os.getenv("MYSQL_PORT", port)),
+    #     "user": os.getenv("MYSQL_USER", user),
+    #     "password": os.getenv("MYSQL_PASSWORD", password),
+    #     "database": os.getenv("MYSQL_DATABASE", database),
+    # }
 
-    mydb = None
-    cursor = None
-    try:
-        safe_cfg = {k: (v if k != "password" else "***") for k, v in db_config.items()}
-        print(f"[DB] Connecting to MySQL at {safe_cfg}")
-        mydb = mysql.connector.connect(**db_config)
-        cursor = mydb.cursor(dictionary=True)
-        cursor.execute(
-            f""" select site_name, standard, company_name from stores where site_name like '%{storeID}%' """)
-        result = cursor.fetchall()
-        return result
+    # mydb = None
+    # cursor = None
+    # try:
+    #     safe_cfg = {k: (v if k != "password" else "***") for k, v in db_config.items()}
+    #     print(f"[DB] Connecting to MySQL at {safe_cfg}")
+    #     mydb = mysql.connector.connect(**db_config)
+    #     cursor = mydb.cursor(dictionary=True)
+    #     cursor.execute(
+    #         f""" select site_name, standard, company_name from stores where site_name like '%{storeID}%' """)
+    #     result = cursor.fetchall()
+    #     return result
 
-    except mysql.connector.Error as e:
-        print(f"[ERROR] MySQL error: {e}")
-        # Return empty list to avoid None-index errors upstream
-        return []
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if mydb is not None and mydb.is_connected():
-                mydb.close()
-        except Exception:
-            pass
+    # except mysql.connector.Error as e:
+    #     print(f"[ERROR] MySQL error: {e}")
+    #     return []
+    # finally:
+    #     try:
+    #         if cursor is not None:
+    #             cursor.close()
+    #     except Exception:
+    #         pass
+    #     try:
+    #         if mydb is not None and mydb.is_connected():
+    #             mydb.close()
+    #     except Exception:
+    #         pass
 
 
 def search_duplicate(storeID: str):
@@ -228,48 +231,48 @@ def get_epoch(start_date=None, end_date=None):
     return start_epoch, end_epoch
 
 
-def _get_bot_status(user_id: str) -> int:
-    """ตรวจสอบ bot_status จาก DB line_service โดยตรง (1=ON, 0=OFF)
-    default คืน 1 ถ้าไม่พบ customer หรือเกิด error เพื่อความปลอดภัย"""
-    db_config = {
-        'host': os.getenv('MYSQL_HOST', 'host.docker.internal'),
-        'port': int(os.getenv('MYSQL_PORT', '3306')),
-        'user': os.getenv('MYSQL_USER', 'root'),
-        'password': os.getenv('MYSQL_PASSWORD', ''),
-        'database': os.getenv('MYSQL_DATABASE_LINE', 'line_service'),
-        'charset': 'utf8mb4',
-        'connection_timeout': 5,
-    }
-    conn = None
-    cursor = None
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute(
-            'SELECT bot_status FROM customers WHERE id = %s LIMIT 1',
-            (user_id,)
-        )
-        row = cursor.fetchone()
-        if row is None:
-            return 1  # ลูกค้าใหม่ยังไม่มีในระบบ → เปิดบอทเป็น default
-        status = row[0]
-        result = 1 if status is None else int(status)
-        # print(f"[bot_status] {user_id} = {result}")
-        return result
-    except Exception as e:
-        print(f"[ERROR] _get_bot_status failed: {e}")
-        return 1  # fail-safe: เปิดบอทเป็น default
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if conn is not None and conn.is_connected():
-                conn.close()
-        except Exception:
-            pass
+# def _get_bot_status(user_id: str) -> int:
+#     """ตรวจสอบ bot_status จาก DB line_service โดยตรง (1=ON, 0=OFF)
+#     default คืน 1 ถ้าไม่พบ customer หรือเกิด error เพื่อความปลอดภัย"""
+#     db_config = {
+#         'host': os.getenv('MYSQL_HOST', 'host.docker.internal'),
+#         'port': int(os.getenv('MYSQL_PORT', '3306')),
+#         'user': os.getenv('MYSQL_USER', 'root'),
+#         'password': os.getenv('MYSQL_PASSWORD', ''),
+#         'database': os.getenv('MYSQL_DATABASE_LINE', 'line_service'),
+#         'charset': 'utf8mb4',
+#         'connection_timeout': 5,
+#     }
+#     conn = None
+#     cursor = None
+#     try:
+#         conn = mysql.connector.connect(**db_config)
+#         cursor = conn.cursor()
+#         cursor.execute(
+#             'SELECT bot_status FROM customers WHERE id = %s LIMIT 1',
+#             (user_id,)
+#         )
+#         row = cursor.fetchone()
+#         if row is None:
+#             return 1  # ลูกค้าใหม่ยังไม่มีในระบบ → เปิดบอทเป็น default
+#         status = row[0]
+#         result = 1 if status is None else int(status)
+#         # print(f"[bot_status] {user_id} = {result}")
+#         return result
+#     except Exception as e:
+#         print(f"[ERROR] _get_bot_status failed: {e}")
+#         return 1  # fail-safe: เปิดบอทเป็น default
+#     finally:
+#         try:
+#             if cursor is not None:
+#                 cursor.close()
+#         except Exception:
+#             pass
+#         try:
+#             if conn is not None and conn.is_connected():
+#                 conn.close()
+#         except Exception:
+#             pass
 
 
 def _get_redis_client():
@@ -310,85 +313,91 @@ def _get_active_global_pause_from_db() -> tuple[bool, int, Any]:
     คืนค่า tuple: (is_paused, remaining_seconds, end_date)
     โดยอ่านจากตาราง bot_status เฉพาะ end_date ของช่วง pause ที่ยัง active
     แล้วคำนวณ is_paused และ remaining_seconds ในโค้ด
+    
+    ฟังก์ชันนี้ต้องใช้ MySQL - ปิดการใช้งานชั่วคราว
     """
-    conn = None
-    cursor = None
-    try:
-        conn = mysql.connector.connect(**_get_line_service_db_config())
-        cursor = conn.cursor()
-        cursor.execute("SET time_zone = '+07:00'")
-        cursor.execute(
-            """
-            SELECT end_date
-            FROM bot_status
-            WHERE status = 0
-              AND start_date <= NOW()
-              AND end_date > NOW()
-            ORDER BY start_date DESC
-            LIMIT 1
-            """
-        )
-        row = cursor.fetchone()
-        if not row:
-            return False, 0, None
+    print(f"[WARN] _get_active_global_pause_from_db() is disabled - MySQL not available")
+    return False, 0, None
+    
+    # conn = None
+    # cursor = None
+    # try:
+    #     conn = mysql.connector.connect(**_get_line_service_db_config())
+    #     cursor = conn.cursor()
+    #     cursor.execute("SET time_zone = '+07:00'")
+    #     cursor.execute(
+    #         """
+    #         SELECT end_date
+    #         FROM bot_status
+    #         WHERE status = 0
+    #           AND start_date <= NOW()
+    #           AND end_date > NOW()
+    #         ORDER BY start_date DESC
+    #         LIMIT 1
+    #         """
+    #     )
+    #     row = cursor.fetchone()
+    #     if not row:
+    #         return False, 0, None
 
-        end_date = row[0]
-        thai_now_naive = datetime.datetime.now(THAI_TZ).replace(tzinfo=None)
-        now = datetime.datetime.now(end_date.tzinfo) if getattr(end_date, "tzinfo", None) else thai_now_naive
-        remaining = int((end_date - now).total_seconds())
-        if remaining <= 0:
-            return False, 0, end_date
-        return True, remaining, end_date
-    except Exception as e:
-        print(f"[ERROR] _get_active_global_pause_from_db failed: {e}")
-        return False, 0, None
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if conn is not None and conn.is_connected():
-                conn.close()
-        except Exception:
-            pass
+    #     end_date = row[0]
+    #     thai_now_naive = datetime.datetime.now(THAI_TZ).replace(tzinfo=None)
+    #     now = datetime.datetime.now(end_date.tzinfo) if getattr(end_date, "tzinfo", None) else thai_now_naive
+    #     remaining = int((end_date - now).total_seconds())
+    #     if remaining <= 0:
+    #         return False, 0, end_date
+    #     return True, remaining, end_date
+    # except Exception as e:
+    #     print(f"[ERROR] _get_active_global_pause_from_db failed: {e}")
+    #     return False, 0, None
+    # finally:
+    #     try:
+    #         if cursor is not None:
+    #             cursor.close()
+    #     except Exception:
+    #         pass
+    #     try:
+    #         if conn is not None and conn.is_connected():
+    #             conn.close()
+    #     except Exception:
+    #         pass
 
 
 def set_global_pause_24h(issued_by: str = "") -> Dict[str, Any]:
-    """ตั้งสถานะ pause แบบ global เป็นเวลา 24 ชั่วโมง (เขียน DB + Redis)"""
-    conn = None
-    cursor = None
+    """ตั้งสถานะ pause แบบ global เป็นเวลา 24 ชั่วโมง (ใช้ Redis เท่านั้น)"""
     thai_now = datetime.datetime.now(THAI_TZ)
     end_at = thai_now + datetime.timedelta(seconds=GLOBAL_PAUSE_SECONDS)
     pause_id = f"B{thai_now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
-    try:
-        conn = mysql.connector.connect(**_get_line_service_db_config())
-        cursor = conn.cursor()
-        cursor.execute("SET time_zone = '+07:00'")
-        cursor.execute(
-            """
-            INSERT INTO bot_status (id, status, start_date, end_date)
-            VALUES (%s, %s, NOW(), DATE_ADD(NOW(), INTERVAL %s SECOND))
-            """,
-            (pause_id, 0, GLOBAL_PAUSE_SECONDS)
-        )
-        conn.commit()
-    except Exception as e:
-        print(f"[ERROR] set_global_pause_24h DB failed: {e}")
-        return {"ok": False, "message": "db_error", "error": str(e)}
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if conn is not None and conn.is_connected():
-                conn.close()
-        except Exception:
-            pass
+    # MySQL part - disabled
+    # conn = None
+    # cursor = None
+    # try:
+    #     conn = mysql.connector.connect(**_get_line_service_db_config())
+    #     cursor = conn.cursor()
+    #     cursor.execute("SET time_zone = '+07:00'")
+    #     cursor.execute(
+    #         """
+    #         INSERT INTO bot_status (id, status, start_date, end_date)
+    #         VALUES (%s, %s, NOW(), DATE_ADD(NOW(), INTERVAL %s SECOND))
+    #         """,
+    #         (pause_id, 0, GLOBAL_PAUSE_SECONDS)
+    #     )
+    #     conn.commit()
+    # except Exception as e:
+    #     print(f"[ERROR] set_global_pause_24h DB failed: {e}")
+    #     return {"ok": False, "message": "db_error", "error": str(e)}
+    # finally:
+    #     try:
+    #         if cursor is not None:
+    #             cursor.close()
+    #     except Exception:
+    #         pass
+    #     try:
+    #         if conn is not None and conn.is_connected():
+    #             conn.close()
+    #     except Exception:
+    #         pass
 
     redis_ok = False
     redis_error = None
@@ -400,6 +409,9 @@ def set_global_pause_24h(issued_by: str = "") -> Dict[str, Any]:
         except Exception as e:
             redis_error = str(e)
             print(f"[WARN] set_global_pause_24h Redis failed: {e}")
+            return {"ok": False, "message": "redis_error", "error": redis_error}
+    else:
+        return {"ok": False, "message": "redis_unavailable"}
 
     return {
         "ok": True,
@@ -413,41 +425,42 @@ def set_global_pause_24h(issued_by: str = "") -> Dict[str, Any]:
 
 
 def force_global_start_now(issued_by: str = "") -> Dict[str, Any]:
-    """ยกเลิก global pause ทันที (ปิดช่วง active ใน DB + ลบ Redis key)"""
-    conn = None
-    cursor = None
-    updated_rows = 0
-    try:
-        conn = mysql.connector.connect(**_get_line_service_db_config())
-        cursor = conn.cursor()
-        cursor.execute("SET time_zone = '+07:00'")
-        cursor.execute(
-            """
-            UPDATE bot_status
-            SET end_date = NOW()
-            WHERE status = 0
-              AND start_date <= NOW()
-              AND end_date > NOW()
-            ORDER BY start_date DESC
-            LIMIT 1
-            """
-        )
-        updated_rows = cursor.rowcount or 0
-        conn.commit()
-    except Exception as e:
-        print(f"[ERROR] force_global_start_now DB failed: {e}")
-        return {"ok": False, "message": "db_error", "error": str(e)}
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if conn is not None and conn.is_connected():
-                conn.close()
-        except Exception:
-            pass
+    """ยกเลิก global pause ทันที (ลบ Redis key เท่านั้น)"""
+    # MySQL part - disabled
+    # conn = None
+    # cursor = None
+    # updated_rows = 0
+    # try:
+    #     conn = mysql.connector.connect(**_get_line_service_db_config())
+    #     cursor = conn.cursor()
+    #     cursor.execute("SET time_zone = '+07:00'")
+    #     cursor.execute(
+    #         """
+    #         UPDATE bot_status
+    #         SET end_date = NOW()
+    #         WHERE status = 0
+    #           AND start_date <= NOW()
+    #           AND end_date > NOW()
+    #         ORDER BY start_date DESC
+    #         LIMIT 1
+    #         """
+    #     )
+    #     updated_rows = cursor.rowcount or 0
+    #     conn.commit()
+    # except Exception as e:
+    #     print(f"[ERROR] force_global_start_now DB failed: {e}")
+    #     return {"ok": False, "message": "db_error", "error": str(e)}
+    # finally:
+    #     try:
+    #         if cursor is not None:
+    #             cursor.close()
+    #     except Exception:
+    #         pass
+    #     try:
+    #         if conn is not None and conn.is_connected():
+    #             conn.close()
+    #     except Exception:
+    #         pass
 
     redis_ok = False
     redis_error = None
@@ -459,11 +472,14 @@ def force_global_start_now(issued_by: str = "") -> Dict[str, Any]:
         except Exception as e:
             redis_error = str(e)
             print(f"[WARN] force_global_start_now Redis delete failed: {e}")
+            return {"ok": False, "message": "redis_error", "error": redis_error}
+    else:
+        return {"ok": False, "message": "redis_unavailable"}
 
     return {
         "ok": True,
         "paused": False,
-        "updated_rows": updated_rows,
+        "updated_rows": 0,  # N/A when MySQL is disabled
         "redis_ok": redis_ok,
         "redis_error": redis_error,
         "issued_by": issued_by,
@@ -472,10 +488,7 @@ def force_global_start_now(issued_by: str = "") -> Dict[str, Any]:
 
 def is_global_paused_hybrid() -> tuple[bool, Dict[str, Any]]:
     """
-    เช็ก global pause แบบ Hybrid:
-    1) เช็ก Redis ก่อน
-    2) ถ้า Redis ไม่พร้อม/ไม่มี key ให้ fallback DB
-    3) ถ้า DB ยัง paused ให้ repopulate Redis ด้วย TTL ที่เหลือ
+    เช็ก global pause จาก Redis เท่านั้น (ไม่มี DB fallback)
     """
     client = _get_redis_client()
     if client is not None:
@@ -491,29 +504,33 @@ def is_global_paused_hybrid() -> tuple[bool, Dict[str, Any]]:
         except Exception as e:
             print(f"[WARN] is_global_paused_hybrid Redis read failed: {e}")
 
-    paused, remaining, end_date = _get_active_global_pause_from_db()
-    if not paused:
-        return False, {"source": "db", "ttl_seconds": 0}
+    # ไม่มี DB fallback - ถ้า Redis ไม่พร้อมถือว่าไม่ pause
+    return False, {"source": "redis", "ttl_seconds": 0}
+    
+    # DB fallback - disabled
+    # paused, remaining, end_date = _get_active_global_pause_from_db()
+    # if not paused:
+    #     return False, {"source": "db", "ttl_seconds": 0}
 
-    if client is not None and remaining > 0:
-        try:
-            client.set(GLOBAL_PAUSE_REDIS_KEY, str(int(end_date.timestamp())), ex=remaining)
-            print(f"[INFO] Redis key repopulated from DB fallback (ttl={remaining}s)")
-        except Exception as e:
-            print(f"[WARN] Redis repopulate failed: {e}")
+    # if client is not None and remaining > 0:
+    #     try:
+    #         client.set(GLOBAL_PAUSE_REDIS_KEY, str(int(end_date.timestamp())), ex=remaining)
+    #         print(f"[INFO] Redis key repopulated from DB fallback (ttl={remaining}s)")
+    #     except Exception as e:
+    #         print(f"[WARN] Redis repopulate failed: {e}")
 
-    return True, {
-        "source": "db",
-        "ttl_seconds": remaining,
-        "end_at": end_date.isoformat(sep=" ") if end_date else None,
-    }
+    # return True, {
+    #     "source": "db",
+    #     "ttl_seconds": remaining,
+    #     "end_at": end_date.isoformat(sep=" ") if end_date else None,
+    # }
 
 
 def get_effective_bot_status(user_id: str) -> int:
     """คืนสถานะเปิด/ปิดบอทที่รวม per-customer + global pause แล้ว"""
-    customer_status = _get_bot_status(user_id)
-    if customer_status != 1:
-        return 0
+    # customer_status = _get_bot_status(user_id)
+    # if customer_status != 1:
+    #     return 0
 
     paused, _meta = is_global_paused_hybrid()
     return 0 if paused else 1
@@ -525,7 +542,7 @@ __all__ = [
     "fetch_store",
     "search_duplicate",
     "get_epoch",
-    "_get_bot_status",
+    # "_get_bot_status",
     "set_global_pause_24h",
     "force_global_start_now",
     "is_global_paused_hybrid",
@@ -536,100 +553,109 @@ __all__ = [
 
 
 def _get_line_service_db_config() -> dict:
-    """คืน config สำหรับ DB line_service"""
-    return {
-        "host": os.getenv("MYSQL_HOST", "localhost"),
-        "port": int(os.getenv("MYSQL_PORT", 3306)),
-        "user": os.getenv("MYSQL_USER", "root"),
-        "password": os.getenv("MYSQL_PASSWORD", ""),
-        "database": os.getenv("MYSQL_DATABASE_LINE", "line_service"),
-    }
+    """คืน config สำหรับ DB line_service (ปิดการใช้งาน)"""
+    print(f"[WARN] _get_line_service_db_config() is disabled - MySQL not available")
+    return {}
+    # return {
+    #     "host": os.getenv("MYSQL_HOST", "localhost"),
+    #     "port": int(os.getenv("MYSQL_PORT", 3306)),
+    #     "user": os.getenv("MYSQL_USER", "root"),
+    #     "password": os.getenv("MYSQL_PASSWORD", ""),
+    #     "database": os.getenv("MYSQL_DATABASE_LINE", "line_service"),
+    # }
 
 
 def check_duplicate_ticket(branch: str) -> dict:
     """
     ตรวจสอบว่าสาขานี้เคยเปิด Ticket ในวันนี้แล้วหรือไม่
-    ถ้าพบ duplicate จะเพิ่ม count ของแถวนั้น 1 ครั้งแล้วคืนค่ากลับไป
-
+    ฟังก์ชันนี้ต้องใช้ MySQL - ปิดการใช้งานชั่วคราว
+    
     Returns: {"found": bool, "ticket_id": str | None, "count": int}
     """
-    if not branch or not branch.strip():
-        return {"found": False, "ticket_id": None, "count": 0}
+    print(f"[WARN] check_duplicate_ticket() is disabled - MySQL not available")
+    return {"found": False, "ticket_id": None, "count": 0}
+    
+    # if not branch or not branch.strip():
+    #     return {"found": False, "ticket_id": None, "count": 0}
 
-    mydb = None
-    cursor = None
-    try:
-        mydb = mysql.connector.connect(**_get_line_service_db_config())
-        cursor = mydb.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT ticket_id, COALESCE(count, 0) AS count
-            FROM tickets
-            WHERE branch LIKE %s
-              AND DATE(created_date) = DATE(NOW())
-            ORDER BY created_date DESC
-            LIMIT 1
-        """, (f"%{branch.strip()}%",))
-        print(f"[DB] Checking for duplicate ticket for branch '{branch.strip()}'...")
-        row = cursor.fetchone()
-        if row:
-            current_count = int(row.get("count") or 0)
-            new_count = current_count + 1
-            cursor.execute("""
-                UPDATE tickets
-                SET count = %s
-                WHERE ticket_id = %s
-            """, (new_count, row["ticket_id"]))
-            mydb.commit()
-            print(f"[DB] Duplicate ticket found for branch '{branch}': {row['ticket_id']} (count={new_count})")
-            return {"found": True, "ticket_id": row["ticket_id"], "count": new_count}
-        return {"found": False, "ticket_id": None, "count": 0}
-    except mysql.connector.Error as e:
-        print(f"[ERROR] check_duplicate_ticket failed: {e}")
-        return {"found": False, "ticket_id": None, "count": 0}
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if mydb is not None and mydb.is_connected():
-                mydb.close()
-        except Exception:
-            pass
+    # mydb = None
+    # cursor = None
+    # try:
+    #     mydb = mysql.connector.connect(**_get_line_service_db_config())
+    #     cursor = mydb.cursor(dictionary=True)
+    #     cursor.execute("""
+    #         SELECT ticket_id, COALESCE(count, 0) AS count
+    #         FROM tickets
+    #         WHERE branch LIKE %s
+    #           AND DATE(created_date) = DATE(NOW())
+    #         ORDER BY created_date DESC
+    #         LIMIT 1
+    #     """, (f"%{branch.strip()}%",))
+    #     print(f"[DB] Checking for duplicate ticket for branch '{branch.strip()}'...")
+    #     row = cursor.fetchone()
+    #     if row:
+    #         current_count = int(row.get("count") or 0)
+    #         new_count = current_count + 1
+    #         cursor.execute("""
+    #             UPDATE tickets
+    #             SET count = %s
+    #             WHERE ticket_id = %s
+    #         """, (new_count, row["ticket_id"]))
+    #         mydb.commit()
+    #         print(f"[DB] Duplicate ticket found for branch '{branch}': {row['ticket_id']} (count={new_count})")
+    #         return {"found": True, "ticket_id": row["ticket_id"], "count": new_count}
+    #     return {"found": False, "ticket_id": None, "count": 0}
+    # except mysql.connector.Error as e:
+    #     print(f"[ERROR] check_duplicate_ticket failed: {e}")
+    #     return {"found": False, "ticket_id": None, "count": 0}
+    # finally:
+    #     try:
+    #         if cursor is not None:
+    #             cursor.close()
+    #     except Exception:
+    #         pass
+    #     try:
+    #         if mydb is not None and mydb.is_connected():
+    #             mydb.close()
+    #     except Exception:
+    #         pass
 
 
 def record_ticket_open(branch: str, ticket_id: str, customer_id: str = '') -> None:
     """
     บันทึกการเปิด Ticket ลงตาราง tickets ใน line_service เพื่อตรวจสอบ Ticket ซ้ำ
+    ฟังก์ชันนี้ต้องใช้ MySQL - ปิดการใช้งานชั่วคราว
     """
-    if not branch or not ticket_id:
-        return
+    print(f"[WARN] record_ticket_open() is disabled - MySQL not available")
+    return
+    
+    # if not branch or not ticket_id:
+    #     return
 
-    mydb = None
-    cursor = None
-    try:
-        mydb = mysql.connector.connect(**_get_line_service_db_config())
-        cursor = mydb.cursor()
-        cursor.execute("""
-            INSERT INTO tickets (ticket_id, branch, customer_id, created_date)
-            VALUES (%s, %s, %s, NOW())
-        """, (str(ticket_id), branch.strip(), customer_id or ''))
-        mydb.commit()
-        print(f"[DB] Recorded ticket: ticket_id={ticket_id}, branch='{branch}', customer_id='{customer_id}'")
-    except mysql.connector.Error as e:
-        print(f"[ERROR] record_ticket_open failed: {e}")
-    finally:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except Exception:
-            pass
-        try:
-            if mydb is not None and mydb.is_connected():
-                mydb.close()
-        except Exception:
-            pass
+    # mydb = None
+    # cursor = None
+    # try:
+    #     mydb = mysql.connector.connect(**_get_line_service_db_config())
+    #     cursor = mydb.cursor()
+    #     cursor.execute("""
+    #         INSERT INTO tickets (ticket_id, branch, customer_id, created_date)
+    #         VALUES (%s, %s, %s, NOW())
+    #     """, (str(ticket_id), branch.strip(), customer_id or ''))
+    #     mydb.commit()
+    #     print(f"[DB] Recorded ticket: ticket_id={ticket_id}, branch='{branch}', customer_id='{customer_id}'")
+    # except mysql.connector.Error as e:
+    #     print(f"[ERROR] record_ticket_open failed: {e}")
+    # finally:
+    #     try:
+    #         if cursor is not None:
+    #             cursor.close()
+    #     except Exception:
+    #         pass
+    #     try:
+    #         if mydb is not None and mydb.is_connected():
+    #             mydb.close()
+    #     except Exception:
+    #         pass
 
 
 def send_helpdesk_alert(branch: str, ticket_id: str, duplicate_count: int) -> bool:
