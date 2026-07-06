@@ -294,7 +294,6 @@ def _submit_parts(user_id: str, parts: str):
             print(f"[_submit_parts {user_id}] Ignored group {i}...")
             _clear(user_id)
             return
-    # print(f"[CHECK STATE BEFORE SUBMIT] {state['data']['text1']}")
     
     if parts == "part1":
         print(f"[_submit_parts {user_id}] Processing part 1...")
